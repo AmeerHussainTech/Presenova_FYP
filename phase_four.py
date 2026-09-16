@@ -320,8 +320,8 @@ def analyze_audio():
                         language="en"
                     )
                     transcript = transcription.text
-            except (RateLimitError, APITimeoutError) as re:
-                logger.warning("Groq Whisper transcription rate-limited or timed out: %s", re)
+            except (RateLimitError, APITimeoutError) as rate_err:
+                logger.warning("Groq Whisper transcription rate-limited or timed out: %s", rate_err)
                 # Graceful degraded fallback to avoid hanging or failing
                 transcript = "Hello! Um, I am trying to explain this presentation. It covers our key objectives, methodology, and results."
             except Exception as e:

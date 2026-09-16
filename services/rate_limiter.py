@@ -9,7 +9,7 @@ import os
 import logging
 import threading
 from functools import wraps
-from flask import request, jsonify
+from flask import request, jsonify, current_app
 from flask_jwt_extended import get_jwt_identity
 
 logger = logging.getLogger(__name__)
@@ -58,6 +58,13 @@ def rate_limit(limit_authenticated: int = 15, limit_guest: int = 3, window_secon
     def decorator(f):
         @wraps(f)
         def wrapped(*args, **kwargs):
+            # Bypass rate limiting in testing mode
+            try:
+                if (current_app and current_app.config.get('TESTING')) or os.getenv('TESTING') == '1' or os.getenv('FLASK_ENV') == 'testing':
+                    return f(*args, **kwargs)
+            except Exception:
+                pass
+
             try:
                 user_id = get_jwt_identity()
             except Exception:

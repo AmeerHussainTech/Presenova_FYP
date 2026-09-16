@@ -810,8 +810,8 @@ def analyze_audio_chunk(base64_audio_data: str, session_id: str = "live", transc
                         language="en"
                     )
                     transcript = transcription.text.strip()
-            except (RateLimitError, APITimeoutError) as re:
-                print(f"⚠️ [LIVE STT] Groq Whisper chunk rate-limited or timed out ({re}). Degraded response returned.")
+            except (RateLimitError, APITimeoutError) as rate_err:
+                print(f"⚠️ [LIVE STT] Groq Whisper chunk rate-limited or timed out ({rate_err}). Degraded response returned.")
                 transcript = ""
             except Exception as e:
                 print(f"[LIVE STT WARN] Groq Whisper chunk transcription failed: {str(e)}")

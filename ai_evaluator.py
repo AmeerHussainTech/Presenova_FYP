@@ -20,12 +20,9 @@ import os
 import json
 import random
 import re
-# AUDIT-06: Suppress FutureWarning from the legacy google.generativeai SDK before import.
-import warnings
-warnings.filterwarnings("ignore", category=FutureWarning, message=r"(?s).*google\.generativeai.*")
-import google.generativeai as genai
 import logging
 from dotenv import load_dotenv
+from services.ai.gemini_provider import GeminiProvider
 from services.language_tool_service import (
     check_grammar,
     summarise_grammar_issues,
@@ -38,19 +35,14 @@ logger = logging.getLogger(__name__)
 # Load env variables
 load_dotenv()
 
-# Initialize Gemini API
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-gemini_available = False
+# Initialize Gemini Provider
+_gemini_provider = GeminiProvider()
+gemini_available = _gemini_provider.is_available()
 
-if GEMINI_API_KEY and GEMINI_API_KEY != 'your-gemini-api-key-here':
-    try:
-        genai.configure(api_key=GEMINI_API_KEY, transport='rest')
-        gemini_available = True
-        logger.info("[AI OK] Global AI Evaluator: Gemini API configured successfully (REST)")
-    except Exception as e:
-        logger.error("[AI WARN] Global AI Evaluator: Failed to configure Gemini API: %s", e)
+if gemini_available:
+    logger.info("[AI OK] Global AI Evaluator: Gemini Provider initialized successfully (%s)", _gemini_provider.model_name)
 else:
-    logger.warning("[AI WARN] Global AI Evaluator: GEMINI_API_KEY not configured or placeholder used. Running with smart fallbacks.")
+    logger.warning("[AI WARN] Global AI Evaluator: GEMINI_API_KEY not configured or offline. Running with smart fallbacks.")
 
 
 def evaluate_7cs(text: str, module_type: str, context_metrics: dict) -> dict:
@@ -369,15 +361,24 @@ def evaluate_7cs(text: str, module_type: str, context_metrics: dict) -> dict:
         fillers = context_metrics.get("fillers", 0)
         avg_qna = context_metrics.get("avg_qna", 0)
         interruptions = context_metrics.get("interruptions", [])
-        has_visual_metrics = context_metrics.get("has_visual_metrics", False)
-        has_voice_metrics = context_metrics.get("has_voice_metrics", False)
-        has_qna_scores = context_metrics.get("has_qna_scores", False)
+        has_visual_metrics = context_metrics.get("has_visual_metrics", False) or bool(avg_eye or avg_posture)
+        has_voice_metrics = context_metrics.get("has_voice_metrics", False) or bool(avg_wpm or fillers)
+        has_qna_scores = context_metrics.get("has_qna_scores", False) or bool(avg_qna)
         
         overall_score = context_metrics.get("overall_execution", 0)
+        if overall_score == 0 and (has_visual_metrics or has_voice_metrics or has_qna_scores):
+            sub_scores = []
+            if avg_eye or avg_posture:
+                sub_scores.append((avg_eye + avg_posture) / 2)
+            if avg_wpm:
+                wpm_score = min(100, max(20, 100 - (fillers * 4) - abs(avg_wpm - 140) // 2))
+                sub_scores.append(wpm_score)
+            if avg_qna:
+                sub_scores.append(avg_qna)
+            if sub_scores:
+                overall_score = int(sum(sub_scores) / len(sub_scores))
 
-        # FIX: kuch bhi measure nahi hua to Gemini ko hallucinate karne ka
-        # mauka hi mat do — call skip kr do
-        insufficient_live_data = not has_visual_metrics and not has_voice_metrics and not has_qna_scores
+        insufficient_live_data = not has_visual_metrics and not has_voice_metrics and not has_qna_scores and overall_score == 0
         
         strengths_list = []
         recs_list = []
@@ -752,18 +753,11 @@ JSON Schema:
 """
 
     # ===== RUN GEMINI INVOCATION =====
-    if gemini_available and analysis_prompt:
+    if _gemini_provider.is_available() and analysis_prompt:
         try:
-            model = genai.GenerativeModel(os.getenv('GEMINI_MODEL', 'gemini-2.5-flash'))
-            response = model.generate_content(
-                analysis_prompt,
-                generation_config={
-                    "response_mime_type": "application/json",
-                    "temperature": 0.5,
-                    "top_p": 0.95
-                }
-            )
-            analysis_json = json.loads(response.text)
+            analysis_json = _gemini_provider.generate_structured(analysis_prompt)
+            if not isinstance(analysis_json, dict) or not analysis_json:
+                raise ValueError("Gemini response is not a valid JSON dictionary")
 
             # Ensure document_name is set for document analysis
             if module_type == 'document' and 'document_name' not in analysis_json:
@@ -868,18 +862,12 @@ Version 2 Text:
 {v2_text}
 """
 
-    if gemini_available:
+    if _gemini_provider.is_available():
         try:
-            model = genai.GenerativeModel(os.getenv('GEMINI_MODEL', 'gemini-2.5-flash'))
-            response = model.generate_content(
-                compare_prompt,
-                generation_config={
-                    "response_mime_type": "application/json",
-                    "temperature": 0.5,
-                    "top_p": 0.95
-                }
-            )
-            return json.loads(response.text)
+            result = _gemini_provider.generate_structured(compare_prompt)
+            if isinstance(result, dict) and 'score_difference' in result:
+                return result
+            return fallback_json
         except Exception as e:
             logger.warning("Global AI Evaluator: Comparison call failed (%s). Using heuristics.", e)
             return fallback_json

@@ -1,4 +1,4 @@
-# Backend Python
+# Backend Python & Virtual Environments
 __pycache__/
 *.py[cod]
 *$py.class
@@ -10,6 +10,7 @@ dist/
 /downloads/
 !frontend/public/downloads/
 !frontend/public/downloads/**
+generated_presentations/
 eggs/
 .eggs/
 lib/
@@ -23,56 +24,60 @@ wheels/
 *.egg
 MANIFEST
 venv/
+venv*/
+.venv/
+.venv*/
 env/
 ENV/
 
-# Frontend Node
+# Frontend Node & Build Output
 node_modules/
-npm-debug.log
-yarn-error.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+frontend/dist/
+frontend/dist-electron/
+frontend/release/
 dist/
-build/
 
-# IDE
+# IDE & OS
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
-
-# Environment
-.env
-.env.local
-.env.*.local
-
-# OS
 Thumbs.db
-.DS_Store
 
-# Logs
+# Environment Variables & Secrets (NEVER commit secrets!)
+.env
+.env.*
+.env*.local
+!.env.example
+!frontend/.env.example
+
+# Logs & Databases
 *.log
 logs/
+firebase-debug.log*
+firestore-debug.log*
+instance/
+*.sqlite
+*.sqlite3
+*.db
 
-# Testing
+# Testing & Coverage
 .pytest_cache/
 .coverage
 htmlcov/
 
-# Firebase Credentials (NEVER commit this!)
+# Firebase Credentials & Private Keys (NEVER commit this!)
 firebase-service-account.json
 *.service-account.json
+*.pem
+*.key
 
-# Firebase local
+# Firebase CLI
 .firebase/
-firebase-debug.log
-firestore-debug.log
 
-# Electron build output
-frontend/dist-electron/
-frontend/release/
-
-# Temporary and generated files
-instance/
-.venv/
-
+*.exe

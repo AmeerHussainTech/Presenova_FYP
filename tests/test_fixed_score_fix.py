@@ -18,7 +18,7 @@ if NLP_DIR not in sys.path:
 from feature_extractors import extract_features, get_feature_names
 from scoring_model import score_text_offline, load_scoring_models
 from train_model import train_model, DATASET_PATH, MODEL_PATH
-import pandas as pd
+import csv
 
 def run_6_step_fix_plan():
     print("============================================================")
@@ -33,11 +33,14 @@ def run_6_step_fix_plan():
         print(f"[INFO] Dataset file {DATASET_PATH} not found. Running dataset generator...")
         train_model()
     
-    df = pd.read_csv(DATASET_PATH)
+    with open(DATASET_PATH, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        headers = reader.fieldnames or []
+        rows = list(reader)
     print(f"✅ Dataset Path: {DATASET_PATH}")
-    print(f"✅ Dataframe Shape: {df.shape} (Rows: {df.shape[0]}, Columns: {df.shape[1]})")
-    print(f"✅ Column Headers: {list(df.columns)}")
-    print(f"✅ First Row Preview: {dict(df.iloc[0])}")
+    print(f"✅ Dataset Shape: (Rows: {len(rows)}, Columns: {len(headers)})")
+    print(f"✅ Column Headers: {headers}")
+    print(f"✅ First Row Preview: {rows[0] if rows else {}}")
 
     # ---------------------------------------------------------
     # STEP 2: Feature Extraction Sanity Check (Before & After)
