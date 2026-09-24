@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "fyp-integration"
+    "default": "fyp-firebase-df1f6-cfc8e",
+    "base": "fyp-firebase-df1f6",
+    "integration": "fyp-integration",
+    "presenova": "presenova-fyp"
   }
 }

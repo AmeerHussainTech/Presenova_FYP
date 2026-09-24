@@ -18,11 +18,15 @@ if hasattr(sys.stderr, 'reconfigure'):
 import os
 import json
 import base64
+import logging
 import math
 import re
 import tempfile
 import threading
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
+
 from services.ai.gemini_provider import GeminiProvider
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -42,7 +46,7 @@ try:
     OPENCV_AVAILABLE = True
 except Exception as e:
     OPENCV_IMPORT_ERROR = str(e)
-    print(f"[LIVE WARN] OpenCV or NumPy not available: {OPENCV_IMPORT_ERROR}")
+    logger.warning("[LIVE WARN] OpenCV or NumPy not available: %s", OPENCV_IMPORT_ERROR)
 
 MEDIAPIPE_AVAILABLE = False
 MEDIAPIPE_IMPORTED = False
@@ -84,7 +88,7 @@ try:
             MEDIAPIPE_IMPORT_ERROR = f"MediaPipe Tasks API unavailable: {str(task_err)}"
 except Exception as e:
     MEDIAPIPE_IMPORT_ERROR = str(e)
-    print(f"[LIVE WARN] MediaPipe not available: {MEDIAPIPE_IMPORT_ERROR}")
+    logger.warning("[LIVE WARN] MediaPipe not available: %s", MEDIAPIPE_IMPORT_ERROR)
 
 LIBROSA_AVAILABLE = False
 try:
@@ -92,7 +96,7 @@ try:
     import soundfile as sf  # type: ignore
     LIBROSA_AVAILABLE = True
 except ImportError:
-    print("[LIVE WARN] Librosa or Soundfile not available. Using mock voice feature extraction.")
+    logger.warning("[LIVE WARN] Librosa or Soundfile not available. Using mock voice feature extraction.")
 
 
 # Initialize Gemini Provider
@@ -105,9 +109,9 @@ groq_client = None
 if GROQ_API_KEY and GROQ_API_KEY != 'your-groq-api-key-here':
     try:
         groq_client = Groq(api_key=GROQ_API_KEY, timeout=4.0)
-        print("[LIVE OK] Groq API configured successfully for Live Presentation Coach (timeout=4.0s)")
+        logger.info("[LIVE OK] Groq API configured successfully for Live Presentation Coach (timeout=4.0s)")
     except Exception as e:
-        print(f"[LIVE WARN] Failed to configure Groq client: {str(e)}")
+        logger.warning("[LIVE WARN] Failed to configure Groq client: %s", e)
 
 # Create Blueprint
 phase_live_bp = Blueprint('phase_live', __name__, url_prefix='/api/presentation')
@@ -133,9 +137,16 @@ face_mesh_detector = None
 _CLAHE = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8)) if OPENCV_AVAILABLE else None
 _CLAHE_RETRY = cv2.createCLAHE(clipLimit=3.5, tileGridSize=(8, 8)) if OPENCV_AVAILABLE else None
 
+_vision_lock = threading.Lock()
+_cascades_initialized = False
+
 def init_cascades():
-    global face_cascade, face_cascade_alt2, profile_cascade, eye_cascade
-    if OPENCV_AVAILABLE and (face_cascade is None or face_cascade_alt2 is None):
+    global face_cascade, face_cascade_alt2, profile_cascade, eye_cascade, _cascades_initialized
+    if not OPENCV_AVAILABLE or _cascades_initialized:
+        return
+    with _vision_lock:
+        if _cascades_initialized:
+            return
         try:
             local_cascades = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cascades")
             cascade_dir = getattr(cv2.data, "haarcascades", "")
@@ -163,9 +174,15 @@ def init_cascades():
             if eye_path:
                 eye_cascade = cv2.CascadeClassifier(eye_path)
 
-            print(f"[LIVE OK] Haar Cascades loaded: alt2={face_cascade_alt2 is not None}, default={face_cascade is not None}, eyes={eye_cascade is not None}")
+            _cascades_initialized = True
+            logger.info("[LIVE OK] Haar Cascades loaded: alt2=%s, default=%s, eyes=%s",
+                        face_cascade_alt2 is not None, face_cascade is not None, eye_cascade is not None)
         except Exception as e:
-            print(f"[LIVE WARN] Failed to load OpenCV cascades: {str(e)}")
+            logger.warning("[LIVE WARN] Failed to load OpenCV cascades: %s", e)
+
+# Eagerly initialize cascades at module load so first frame doesn't encounter lock contention
+if OPENCV_AVAILABLE:
+    init_cascades()
 
 _session_lock = threading.Lock()
 _sid_to_session = {}
@@ -178,16 +195,16 @@ def create_face_mesh_detector():
     if MEDIAPIPE_MODE == "solutions":
         try:
             detector = mp_face_mesh.FaceMesh(
-                static_image_mode=False,
+                static_image_mode=True,
                 max_num_faces=1,
                 refine_landmarks=True,
-                min_detection_confidence=0.35,
-                min_tracking_confidence=0.35
+                min_detection_confidence=0.30,
+                min_tracking_confidence=0.30
             )
-            print("[LIVE OK] MediaPipe Solutions FaceMesh instance created.")
+            logger.info("[LIVE OK] MediaPipe Solutions FaceMesh instance created.")
             return detector
         except Exception as e:
-            print(f"[LIVE WARN] Failed to init MediaPipe solutions FaceMesh: {e}")
+            logger.warning("[LIVE WARN] Failed to init MediaPipe solutions FaceMesh: %s", e)
             return None
     elif MEDIAPIPE_MODE == "tasks":
         try:
@@ -212,25 +229,30 @@ def create_face_mesh_detector():
                     min_tracking_confidence=0.25
                 )
                 detector = mp_vision.FaceLandmarker.create_from_options(options)
-                print("[LIVE OK] MediaPipe Tasks FaceLandmarker instance created.")
+                logger.info("[LIVE OK] MediaPipe Tasks FaceLandmarker instance created.")
                 return detector
         except Exception as e:
-            print(f"[LIVE WARN] Failed to init MediaPipe Tasks FaceLandmarker: {e}")
+            logger.warning("[LIVE WARN] Failed to init MediaPipe Tasks FaceLandmarker: %s", e)
             return None
     return None
+
+_session_detectors = {}
 
 def get_session_detector_and_lock(session_id: str):
     """
     Retrieves or instantiates the per-session MediaPipe detector and its synchronization lock.
-    Stored in _MEMORY_STORE["presentation_sessions"][session_id]["detector"] (ISSUE-01).
+    Stored in isolated _session_detectors mapping (completely decoupled from database models).
     """
     if not session_id:
         session_id = "default_session"
+    session_id = str(session_id)
     with _session_lock:
-        sess_store = _MEMORY_STORE["presentation_sessions"]
-        if session_id not in sess_store:
-            sess_store[session_id] = {}
-        sess_entry = sess_store[session_id]
+        if session_id not in _session_detectors:
+            _session_detectors[session_id] = {
+                "lock": threading.Lock(),
+                "detector": create_face_mesh_detector(),
+            }
+        sess_entry = _session_detectors[session_id]
         if "lock" not in sess_entry:
             sess_entry["lock"] = threading.Lock()
         if "detector" not in sess_entry or sess_entry["detector"] is None:
@@ -239,22 +261,22 @@ def get_session_detector_and_lock(session_id: str):
 
 def release_session_detector(session_id: str):
     """
-    Releases and closes the MediaPipe detector instance for a session to prevent resource leaks (ISSUE-01).
+    Releases and closes the MediaPipe detector instance for a session to prevent resource leaks.
     """
     if not session_id:
         return
+    session_id = str(session_id)
     with _session_lock:
-        sess_store = _MEMORY_STORE.get("presentation_sessions", {})
-        sess_entry = sess_store.get(session_id)
+        sess_entry = _session_detectors.pop(session_id, None)
         if sess_entry and "detector" in sess_entry and sess_entry["detector"] is not None:
             try:
                 det = sess_entry["detector"]
                 if hasattr(det, "close"):
                     det.close()
-                print(f"[LIVE OK] Released MediaPipe detector for session {session_id}")
+                logger.info("[LIVE OK] Released MediaPipe detector for session %s...", session_id[:8])
             except Exception as e:
-                print(f"[LIVE WARN] Error closing detector for session {session_id}: {e}")
-            sess_entry["detector"] = None
+                logger.warning("[LIVE WARN] Error closing detector for session %s...: %s", session_id[:8], e)
+
 
 def init_face_mesh():
     """Retained for backward compatibility."""
@@ -406,8 +428,9 @@ def _analyze_frame_with_mediapipe(img, session=None):
                 try:
                     lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
                     l_channel, a_channel, b_channel = cv2.split(lab)
-                    # AUDIT-03: Reuse module-level _CLAHE_RETRY instead of creating a new instance per frame
-                    cl = _CLAHE_RETRY.apply(l_channel) if _CLAHE_RETRY is not None else l_channel
+                    # Thread-safe CLAHE apply to prevent memory corruption
+                    with _vision_lock:
+                        cl = _CLAHE_RETRY.apply(l_channel) if _CLAHE_RETRY is not None else l_channel
                     enhanced_bgr = cv2.cvtColor(cv2.merge((cl, a_channel, b_channel)), cv2.COLOR_LAB2BGR)
                     enhanced_rgb = cv2.cvtColor(enhanced_bgr, cv2.COLOR_BGR2RGB)
                     res_retry = detector.process(enhanced_rgb)
@@ -425,8 +448,9 @@ def _analyze_frame_with_mediapipe(img, session=None):
                     try:
                         lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
                         l_channel, a_channel, b_channel = cv2.split(lab)
-                        # AUDIT-03: Reuse module-level _CLAHE_RETRY instead of creating a new instance per frame
-                        cl = _CLAHE_RETRY.apply(l_channel) if _CLAHE_RETRY is not None else l_channel
+                        # Thread-safe CLAHE apply to prevent memory corruption
+                        with _vision_lock:
+                            cl = _CLAHE_RETRY.apply(l_channel) if _CLAHE_RETRY is not None else l_channel
                         enhanced_bgr = cv2.cvtColor(cv2.merge((cl, a_channel, b_channel)), cv2.COLOR_LAB2BGR)
                         enhanced_rgb = cv2.cvtColor(enhanced_bgr, cv2.COLOR_BGR2RGB)
                         mp_image_retry = mp.Image(image_format=mp.ImageFormat.SRGB, data=enhanced_rgb)
@@ -499,21 +523,25 @@ def _analyze_frame_with_mediapipe(img, session=None):
     head_yaw_dev = abs(point(1)[0] - eye_center_x) / eye_span
     head_pitch_dev = abs((point(1)[1] - eye_center_y) / face_len - 0.55)
 
-    # Strict Eye Contact Check: If eyes are closed, looking down at screen/desk, or head turned away:
-    is_looking_away = (
-        avg_ear < 0.16 or
-        left_v_ratio > 0.56 or right_v_ratio > 0.56 or
-        gaze_v_dev > 0.14 or gaze_h_dev > 0.12 or
-        head_yaw_dev > 0.14 or head_pitch_dev > 0.16
-    )
+    # FIX: The previous version used a binary "is_looking_away" gate that snapped
+    # eye_contact_score straight to 0 the instant ANY one of six tight thresholds
+    # (e.g. vertical iris ratio > 0.56) was crossed. On a typical laptop webcam
+    # — mounted above the screen, a few inches from the content the user is
+    # actually reading — normal screen-viewing gaze routinely exceeds those
+    # thresholds even while genuinely paying attention, so the score pinned to
+    # 0% almost permanently. Only fully closed eyes are a hard 0 now; gaze and
+    # head-angle deviation instead degrade the score continuously (same
+    # weighted-penalty style as the posture score below), with a wider
+    # tolerance band before penalties kick in.
+    eyes_closed = avg_ear < 0.16
 
-    if is_looking_away:
+    if eyes_closed:
         eye_contact_score = 0
     else:
-        total_dev = (gaze_h_dev * 3.5) + (gaze_v_dev * 4.5) + (head_yaw_dev * 2.5) + (head_pitch_dev * 2.5)
-        eye_contact_score = _clip_score(100 - (total_dev * 200), 0, 100)
-        if total_dev > 0.28:
-            eye_contact_score = max(0, eye_contact_score - 30)
+        total_dev = (gaze_h_dev * 1.8) + (gaze_v_dev * 2.0) + (head_yaw_dev * 1.5) + (head_pitch_dev * 1.5)
+        eye_contact_score = _clip_score(100 - (total_dev * 110), 0, 100)
+        if total_dev > 0.55:
+            eye_contact_score = max(0, eye_contact_score - 20)
 
     ideal_cx = w / 2
     ideal_cy = h * 0.42
@@ -564,75 +592,75 @@ def _analyze_frame_with_mediapipe(img, session=None):
 
 
 def _analyze_frame_with_haar(img, session=None):
-    init_cascades()
+    if not _cascades_initialized:
+        init_cascades()
 
-    if face_cascade is None or eye_cascade is None:
+    if face_cascade is None and face_cascade_alt2 is None:
         return None
 
     h, w, _ = img.shape
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # 1. CLAHE Adaptive Contrast Equalization (dramatically improves low-light webcams)
-    # ISSUE-17: Reuse module-level _CLAHE instance instead of re-instantiating per frame
-    global _CLAHE
-    if _CLAHE is None and OPENCV_AVAILABLE:
-        _CLAHE = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
-    enhanced_gray = _CLAHE.apply(gray) if _CLAHE is not None else gray
+    with _vision_lock:
+        global _CLAHE
+        if _CLAHE is None and OPENCV_AVAILABLE:
+            _CLAHE = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+        enhanced_gray = _CLAHE.apply(gray) if _CLAHE is not None else gray
 
-    def _safe_detect(cascade, im, sf=1.15, mn=3, ms=(30, 30)):
-        if cascade is None or im is None:
-            return []
-        try:
-            res = cascade.detectMultiScale(im, scaleFactor=max(1.10, sf), minNeighbors=mn, minSize=ms)
-            return list(res) if len(res) > 0 else []
-        except Exception:
-            return []
+        def _safe_detect(cascade, im, sf=1.15, mn=3, ms=(30, 30)):
+            if cascade is None or im is None:
+                return []
+            try:
+                res = cascade.detectMultiScale(im, scaleFactor=max(1.10, sf), minNeighbors=mn, minSize=ms)
+                return list(res) if len(res) > 0 else []
+            except Exception:
+                return []
 
-    faces = _safe_detect(face_cascade_alt2, enhanced_gray, sf=1.15, mn=3, ms=(30, 30))
+        faces = _safe_detect(face_cascade_alt2, enhanced_gray, sf=1.15, mn=3, ms=(30, 30))
 
-    if len(faces) == 0:
-        faces = _safe_detect(face_cascade, enhanced_gray, sf=1.15, mn=3, ms=(30, 30))
-
-    if len(faces) == 0:
-        faces = _safe_detect(face_cascade_alt2, gray, sf=1.15, mn=3, ms=(30, 30))
-
-    if len(faces) == 0:
-        faces = _safe_detect(profile_cascade, enhanced_gray, sf=1.18, mn=3, ms=(30, 30))
-
-    if len(faces) == 0:
-        eq_gray = cv2.equalizeHist(gray)
-        faces = _safe_detect(face_cascade_alt2, eq_gray, sf=1.15, mn=2, ms=(25, 25))
         if len(faces) == 0:
-            faces = _safe_detect(face_cascade, eq_gray, sf=1.15, mn=2, ms=(25, 25))
+            faces = _safe_detect(face_cascade, enhanced_gray, sf=1.15, mn=3, ms=(30, 30))
 
-    if len(faces) == 0:
-        return _unmeasured_visual_result("Face not detected. Ensure adequate lighting and look at the camera.")
+        if len(faces) == 0:
+            faces = _safe_detect(face_cascade_alt2, gray, sf=1.15, mn=3, ms=(30, 30))
 
-    fx, fy, fw, fh = max(faces, key=lambda f: f[2] * f[3])
-    face_cx = fx + fw / 2
-    face_cy = fy + fh / 2
-    ideal_cx = w / 2
-    ideal_cy = h * 0.35
+        if len(faces) == 0:
+            faces = _safe_detect(profile_cascade, enhanced_gray, sf=1.18, mn=3, ms=(30, 30))
 
-    dev_x = abs(face_cx - ideal_cx) / w
-    dev_y = (face_cy - ideal_cy) / h
-    face_height_ratio = fh / h
+        if len(faces) == 0:
+            eq_gray = cv2.equalizeHist(gray)
+            faces = _safe_detect(face_cascade_alt2, eq_gray, sf=1.15, mn=2, ms=(25, 25))
+            if len(faces) == 0:
+                faces = _safe_detect(face_cascade, eq_gray, sf=1.15, mn=2, ms=(25, 25))
 
-    x_penalty = min(30, dev_x * 120)
-    y_penalty = min(40, dev_y * 133) if dev_y > 0 else min(15, abs(dev_y) * 75)
-    size_penalty = 0
-    if face_height_ratio < 0.2:
-        size_penalty = min(20, (0.2 - face_height_ratio) * 100)
-    elif face_height_ratio > 0.65:
-        size_penalty = min(15, (face_height_ratio - 0.65) * 80)
+        if len(faces) == 0:
+            return _unmeasured_visual_result("Face not detected. Ensure adequate lighting and look at the camera.")
 
-    posture_score = _clip_score(100 - x_penalty - y_penalty - size_penalty, 0, 100)
+        fx, fy, fw, fh = max(faces, key=lambda f: f[2] * f[3])
+        face_cx = fx + fw / 2
+        face_cy = fy + fh / 2
+        ideal_cx = w / 2
+        ideal_cy = h * 0.35
 
-    face_roi_enhanced = enhanced_gray[fy:fy + fh, fx:fx + fw]
-    face_roi_gray = gray[fy:fy + fh, fx:fx + fw]
-    eyes = _safe_detect(eye_cascade, face_roi_enhanced, sf=1.12, mn=3, ms=(10, 10))
-    if len(eyes) == 0:
-        eyes = _safe_detect(eye_cascade, face_roi_gray, sf=1.12, mn=2, ms=(10, 10))
+        dev_x = abs(face_cx - ideal_cx) / w
+        dev_y = (face_cy - ideal_cy) / h
+        face_height_ratio = fh / h
+
+        x_penalty = min(30, dev_x * 120)
+        y_penalty = min(40, dev_y * 133) if dev_y > 0 else min(15, abs(dev_y) * 75)
+        size_penalty = 0
+        if face_height_ratio < 0.2:
+            size_penalty = min(20, (0.2 - face_height_ratio) * 100)
+        elif face_height_ratio > 0.65:
+            size_penalty = min(15, (face_height_ratio - 0.65) * 80)
+
+        posture_score = _clip_score(100 - x_penalty - y_penalty - size_penalty, 0, 100)
+
+        face_roi_enhanced = enhanced_gray[fy:fy + fh, fx:fx + fw]
+        face_roi_gray = gray[fy:fy + fh, fx:fx + fw]
+        eyes = _safe_detect(eye_cascade, face_roi_enhanced, sf=1.12, mn=3, ms=(10, 10))
+        if len(eyes) == 0:
+            eyes = _safe_detect(eye_cascade, face_roi_gray, sf=1.12, mn=2, ms=(10, 10))
 
     face_visibility = max(0.0, min(1.0, (fw * fh) / (w * h)))
 
@@ -764,10 +792,9 @@ def analyze_webcam_frame(base64_image_data: str, session=None) -> dict:
         if haar_result is not None:
             return haar_result
 
-        reason = MEDIAPIPE_IMPORT_ERROR or "MediaPipe is unavailable and OpenCV Haar cascades did not initialize."
-        return _unmeasured_visual_result(f"Camera analysis unavailable: {reason}")
+        return _unmeasured_visual_result("Face not detected. Ensure adequate lighting and look directly at the camera.")
     except Exception as e:
-        print(f"[LIVE ERROR] Frame processing failed: {str(e)}")
+        logger.error("[LIVE ERROR] Frame processing failed: %s", e)
         return _unmeasured_visual_result("Camera analysis failed for this frame.")
 
 
@@ -802,7 +829,7 @@ def analyze_audio_chunk(base64_audio_data: str, session_id: str = "live", transc
                     temp_audio.write(audio_bytes)
                     temp_audio_path = temp_audio.name
                 
-                print(f"🎙️ [LIVE STT] Transcribing 3s chunk using Groq Whisper...")
+                logger.info("🎙️ [LIVE STT] Transcribing 3s chunk using Groq Whisper...")
                 with open(temp_audio_path, "rb") as audio_file:
                     transcription = groq_client.audio.transcriptions.create(
                         file=(f"chunk_{session_id}.webm", audio_file.read()),
@@ -811,10 +838,10 @@ def analyze_audio_chunk(base64_audio_data: str, session_id: str = "live", transc
                     )
                     transcript = transcription.text.strip()
             except (RateLimitError, APITimeoutError) as rate_err:
-                print(f"⚠️ [LIVE STT] Groq Whisper chunk rate-limited or timed out ({rate_err}). Degraded response returned.")
+                logger.warning("⚠️ [LIVE STT] Groq Whisper chunk rate-limited or timed out (%s). Degraded response returned.", rate_err)
                 transcript = ""
             except Exception as e:
-                print(f"[LIVE STT WARN] Groq Whisper chunk transcription failed: {str(e)}")
+                logger.warning("[LIVE STT WARN] Groq Whisper chunk transcription failed: %s", e)
                 transcript = ""
             finally:
                 # ISSUE-06: Ensure temporary audio file is always cleaned up
@@ -822,16 +849,16 @@ def analyze_audio_chunk(base64_audio_data: str, session_id: str = "live", transc
                     try:
                         os.remove(temp_audio_path)
                     except OSError as oe:
-                        print(f"⚠️ [LIVE WARN] Could not remove temp audio file: {oe}")
+                        logger.warning("⚠️ [LIVE WARN] Could not remove temp audio file: %s", oe)
 
         if not transcript and transcript_hint:
             transcript = transcript_hint.strip()
         
         # 2. Process real transcript if STT succeeded
         if transcript:
-            print(f"🎙️ [LIVE STT RESULT] Transcript: '{transcript}'")
             words = transcript.split()
             word_count = len([w for w in words if w.strip()])
+            logger.info("🎙️ [LIVE STT RESULT] Transcribed %d word(s)", word_count)
 
             # ── FIX: Whisper (and most Whisper-family models) is known to
             # hallucinate short filler phrases ("you", "thank you", "bye")
@@ -839,7 +866,7 @@ def analyze_audio_chunk(base64_audio_data: str, session_id: str = "live", transc
             # chunk is almost never real speech — treat it as unmeasured
             # instead of letting it produce a fake WPM/score.
             if word_count < MIN_WORDS_PER_CHUNK:
-                print(f"[LIVE STT WARN] Discarding likely-hallucinated chunk transcript: '{transcript}' ({word_count} word(s)).")
+                logger.warning("[LIVE STT WARN] Discarding likely-hallucinated chunk transcript (%d word(s)).", word_count)
                 return {
                     "wpm": 0,
                     "filler_word_detected": False,
@@ -897,7 +924,7 @@ def analyze_audio_chunk(base64_audio_data: str, session_id: str = "live", transc
         }
         
     except Exception as e:
-        print(f"[LIVE ERROR] Audio chunk analysis failed: {str(e)}")
+        logger.error("[LIVE ERROR] Audio chunk analysis failed: %s", e)
         return {
             "wpm": 0,
             "filler_word_detected": False,
@@ -937,6 +964,9 @@ def get_vision_status():
 
 # ===== WEBSOCKET SOCKET.IO EVENT HANDLERS =====
 
+_active_frame_sessions = set()
+_active_frame_lock = threading.Lock()
+
 def init_socketio_events(socketio):
     """
     Binds WebSocket events to the Flask-SocketIO instance.
@@ -944,20 +974,27 @@ def init_socketio_events(socketio):
     
     @socketio.on('connect', namespace='/ws/live-session')
     def on_connect():
-        print(f"[CONN] Live presentation socket connected: {request.sid}")
+        logger.info("[CONN] Live presentation socket connected (sid: %s...)", str(request.sid)[:8])
 
     @socketio.on('disconnect', namespace='/ws/live-session')
     def on_disconnect():
-        print(f"[CONN] Live presentation socket disconnected: {request.sid}")
+        logger.info("[CONN] Live presentation socket disconnected (sid: %s...)", str(request.sid)[:8])
         sess_id = _sid_to_session.pop(request.sid, None)
         if sess_id:
-            release_session_detector(sess_id)
+            s_str = str(sess_id)
+            with _active_frame_lock:
+                _active_frame_sessions.discard(s_str)
+            release_session_detector(s_str)
 
     @socketio.on('stop_session', namespace='/ws/live-session')
     def on_stop_session(data):
         sess_id = data.get('session_id') if data else _sid_to_session.get(request.sid)
+        _sid_to_session.pop(request.sid, None)
         if sess_id:
-            release_session_detector(sess_id)
+            s_str = str(sess_id)
+            with _active_frame_lock:
+                _active_frame_sessions.discard(s_str)
+            release_session_detector(s_str)
 
     @socketio.on('start_session', namespace='/ws/live-session')
     def on_start_session(data):
@@ -967,7 +1004,7 @@ def init_socketio_events(socketio):
         user_id = data.get('user_id', 'guest')
         topic = data.get('topic', 'General Presentation').strip()
         
-        print(f"[INFO] Creating live presentation session. Topic: {topic}, User: {user_id}")
+        logger.info("[INFO] Creating live presentation session. Topic: %s", topic[:50])
         
         # Create DB session
         session = PresentationSession.create(user_id=user_id, topic=topic)
@@ -990,7 +1027,8 @@ def init_socketio_events(socketio):
             "status": "success",
             "session_id": session.id,
             "has_history": has_history,
-            "history_summary": history_summary
+            "history_summary": history_summary,
+            "stt_available": groq_client is not None
         }, room=request.sid, namespace='/ws/live-session')
 
     @socketio.on('video_frame', namespace='/ws/live-session')
@@ -1007,36 +1045,47 @@ def init_socketio_events(socketio):
         session = PresentationSession.get_by_id(session_id)
         if not session or session.status != 'STREAMING':
             return
-            
-        # Analyze frame
-        metrics = analyze_webcam_frame(frame_data, session)
 
-        if not metrics.get("valid", False):
-            print(f"[LIVE VISION WARN] {metrics.get('hint', 'Face was not detected')}")
+        # Frame backpressure guard: If a previous frame is currently being processed
+        # for this session, drop this frame immediately to avoid thread buildup and latency lag.
+        session_id_str = str(session_id)
+        with _active_frame_lock:
+            if session_id_str in _active_frame_sessions:
+                return
+            _active_frame_sessions.add(session_id_str)
+
+        try:
+            # Analyze frame
+            metrics = analyze_webcam_frame(frame_data, session)
+
+            if not metrics.get("valid", False):
+                socketio.emit('realtime_feedback', {
+                    "face_detected": False,
+                    "eye_contact": 0,
+                    "posture": 0,
+                    "confidence": 0,
+                    "hint": metrics.get("hint", "Face was not detected. Ensure adequate lighting."),
+                    "emotion": metrics.get("emotion", "NOT DETECTED")
+                }, room=request.sid, namespace='/ws/live-session')
+                return
+            
+            # Save only measured values to DB.
+            session.update_metrics("eye_contact_scores", metrics["eye_contact"])
+            session.update_metrics("posture_scores", metrics["posture"])
+            session.update_metrics("confidence_scores", metrics["confidence"])
+            
+            # Send feedback in real-time
             socketio.emit('realtime_feedback', {
-                "face_detected": False,
-                "eye_contact": 0,
-                "posture": 0,
-                "confidence": 0,
-                "hint": metrics.get("hint", "Face was not detected."),  # FIX: surface the reason to the UI
-                "emotion": metrics.get("emotion", "NOT DETECTED")
+                "face_detected": True,
+                "eye_contact": metrics["eye_contact"],
+                "posture": metrics["posture"],
+                "hint": metrics["hint"],
+                "confidence": metrics["confidence"],
+                "emotion": metrics["emotion"]
             }, room=request.sid, namespace='/ws/live-session')
-            return
-        
-        # Save only measured values to DB.
-        session.update_metrics("eye_contact_scores", metrics["eye_contact"])
-        session.update_metrics("posture_scores", metrics["posture"])
-        session.update_metrics("confidence_scores", metrics["confidence"])
-        
-        # Send feedback in real-time
-        socketio.emit('realtime_feedback', {
-            "face_detected": True,
-            "eye_contact": metrics["eye_contact"],
-            "posture": metrics["posture"],
-            "hint": metrics["hint"],
-            "confidence": metrics["confidence"],
-            "emotion": metrics["emotion"]
-        }, room=request.sid, namespace='/ws/live-session')
+        finally:
+            with _active_frame_lock:
+                _active_frame_sessions.discard(session_id_str)
 
     @socketio.on('audio_chunk', namespace='/ws/live-session')
     def on_audio_chunk(data):
@@ -1110,7 +1159,7 @@ Your question MUST sound like a tough, inquisitive university professor testing 
                     if generated_q and generated_q.strip():
                         question = generated_q.strip()
                 except Exception as e:
-                    print(f"[LIVE WARN] Gemini cross-question generation failed: {str(e)}")
+                    logger.warning("[LIVE WARN] Gemini cross-question generation failed: %s", e)
 
             # Transition state in DB
             session.update_status("INTERRUPTED_Q&A")
@@ -1175,7 +1224,7 @@ Return ONLY a single valid JSON object:
                     grade_score = int(res_data.get("score", 75))
                     feedback = res_data.get("feedback", "Articulate response.")
             except Exception as e:
-                print(f"[LIVE WARN] Gemini grading failed: {str(e)}")
+                logger.warning("[LIVE WARN] Gemini grading failed: %s", e)
         
         # Update session logs — Firestore-compatible approach:
         # Read the current interruptions list, update the last unanswered entry
@@ -1197,7 +1246,7 @@ Return ONLY a single valid JSON object:
                 if session.metrics:
                     session.metrics["interruptions"] = current_interruptions
         except Exception as e:
-            print(f"[LIVE WARN] Failed to update interruption answer in Firestore: {str(e)}")
+            logger.warning("[LIVE WARN] Failed to update interruption answer in Firestore: %s", e)
         
         # Resume streaming status
         session.update_status("STREAMING")
@@ -1402,7 +1451,7 @@ def submit_presentation():
         }), 200
         
     except Exception as e:
-        print(f"[LIVE ERROR] Final submit error: {str(e)}")
+        logger.error("[LIVE ERROR] Final submit error: %s", e)
         return jsonify({
             "success": False,
             "error": "SubmissionFailed",

@@ -22,6 +22,55 @@ import {
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
 
 /**
+ * ===== COLD START RESILIENT FETCH WRAPPER =====
+ * Render free-tier instances sleep after inactivity and can take 30-50s to wake up.
+ * During wake-up, HTTP requests may encounter network dropouts (502, 503, 504) or connection resets.
+ * This wrapper automatically retries transient gateway errors with exponential backoff and a 60s timeout.
+ */
+export async function fetchWithColdStartRetry(
+  url: string,
+  options: RequestInit = {},
+  retries = 2,
+  backoffMs = 2500
+): Promise<Response> {
+  let attempt = 0;
+  while (true) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      const signal = options.signal || controller.signal;
+
+      const response = await fetch(url, {
+        ...options,
+        signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      // Retry on Render cold-start gateway errors (502, 503, 504)
+      if ([502, 503, 504].includes(response.status) && attempt < retries) {
+        attempt++;
+        const delay = backoffMs * attempt;
+        console.warn(`[ColdStartRetry] Backend returned HTTP ${response.status} (server waking up). Retrying in ${delay}ms (${attempt}/${retries})...`);
+        await new Promise((res) => setTimeout(res, delay));
+        continue;
+      }
+
+      return response;
+    } catch (err: any) {
+      if (attempt < retries) {
+        attempt++;
+        const delay = backoffMs * attempt;
+        console.warn(`[ColdStartRetry] Network error (${err?.message || 'timeout'}). Server may be spinning up. Retrying in ${delay}ms (${attempt}/${retries})...`);
+        await new Promise((res) => setTimeout(res, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+/**
  * ===== JWT INTERCEPTOR =====
  * Helper function to fetch with automatic JWT token injection
  * Attaches Authorization header with Bearer token from localStorage
@@ -67,8 +116,8 @@ async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Re
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  // ===== STEP 4: MAKE REQUEST =====
-  const response = await fetch(url, {
+  // ===== STEP 4: MAKE REQUEST WITH COLD-START RESILIENCE =====
+  const response = await fetchWithColdStartRetry(url, {
     ...options,
     headers,
   });
@@ -121,7 +170,7 @@ export const signup = async (
   password: string
 ): Promise<SignupResponse> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/auth/signup`, {
+    const response = await fetchWithColdStartRetry(`${API_BASE_URL}/auth/signup`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -164,7 +213,7 @@ export interface LoginResponse {
 
 export const login = async (email: string, password: string): Promise<LoginResponse> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+    const response = await fetchWithColdStartRetry(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -193,7 +242,7 @@ export const login = async (email: string, password: string): Promise<LoginRespo
  */
 export const firebaseLogin = async (idToken: string): Promise<LoginResponse> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/auth/firebase-login`, {
+    const response = await fetchWithColdStartRetry(`${API_BASE_URL}/auth/firebase-login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -401,9 +450,9 @@ export const getUserHistory = async (): Promise<{ status: string; reports: Repor
 export const healthCheck = async (): Promise<boolean> => {
   try {
     const rootUrl = API_BASE_URL.replace(/\/api\/?$/, '') || window.location.origin;
-    const response = await fetch(`${rootUrl}/`, {
+    const response = await fetchWithColdStartRetry(`${rootUrl}/`, {
       method: 'GET',
-    });
+    }, 1, 1000);
     return response.ok;
   } catch (error) {
     console.error('Backend health check failed:', error);

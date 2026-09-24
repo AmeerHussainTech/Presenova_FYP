@@ -27,7 +27,7 @@ from services.text_extractor import get_extension, is_allowed_for_analysis
 logger = logging.getLogger(__name__)
 
 
-def _safe_int(value, default: int = 6, min_val: int = 3, max_val: int = 15) -> int:
+def _safe_int(value, default: int = 6, min_val: int = 3, max_val: int = 20) -> int:
     """Safely parse an integer from user input, returning default on failure.
 
     AUDIT-05: Bare int() casts on request parameters raise ValueError on non-numeric
@@ -102,8 +102,10 @@ def generate_outline_endpoint():
         }), 200
 
     except Exception as e:
-        logger.error(f"[presentation_generator_bp] Outline generation failed: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': 'ProcessingError', 'message': f'Failed to generate outline: {str(e)}'}), 500
+        logger.error("[presentation_generator_bp] Outline generation failed: %s", e, exc_info=True)
+        _is_prod = os.getenv('FLASK_ENV', 'development').strip().lower() == 'production'
+        msg = 'Failed to generate presentation outline.' if _is_prod else f'Failed to generate outline: {str(e)}'
+        return jsonify({'success': False, 'error': 'ProcessingError', 'message': msg}), 500
 
 
 @presentation_generator_bp.route('/import-seed', methods=['POST'])
@@ -164,8 +166,10 @@ def import_seed_document():
         }), 200
 
     except Exception as e:
-        logger.error(f"[presentation_generator_bp] Seed import failed: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': 'ProcessingError', 'message': f'Failed to parse seed document: {str(e)}'}), 500
+        logger.error("[presentation_generator_bp] Seed import failed: %s", e, exc_info=True)
+        _is_prod = os.getenv('FLASK_ENV', 'development').strip().lower() == 'production'
+        msg = 'Failed to parse seed document.' if _is_prod else f'Failed to parse seed document: {str(e)}'
+        return jsonify({'success': False, 'error': 'ProcessingError', 'message': msg}), 500
 
 
 @presentation_generator_bp.route('/generate-from-outline', methods=['POST'])
@@ -207,17 +211,15 @@ def generate_from_outline_endpoint():
             user_id = get_jwt_identity() or 'guest'
             topic = outline_data.get('topic', 'Presentation')
             report_json = {
-                "overall_score": 90,
+                "overall_score": None,  # FIX-D: No fake scores — this is generated, not evaluated
                 "topic": topic,
                 "presentation_title": outline_data.get('presentation_title', topic),
                 "slides_count": len(outline_data.get('slides', [])),
                 "theme": theme,
-                "seven_cs_scores": {
-                    "Clear": 94, "Concise": 92, "Correct": 95, "Complete": 88,
-                    "Courteous": 95, "Concrete": 90, "Consistent": 94
-                }
+                "report_type": "presentation_generated",
+                # seven_cs_scores intentionally omitted — generated presentations have no 7Cs evaluation
             }
-            Report.create(report_json=report_json, report_type='presentation_analysis', user_id=user_id)
+            Report.create(report_json=report_json, report_type='presentation_generated', user_id=user_id)
         except Exception:
             pass
 
@@ -231,8 +233,10 @@ def generate_from_outline_endpoint():
         }), 200
 
     except Exception as e:
-        logger.error(f"[presentation_generator_bp] PPTX synthesis from outline failed: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': 'ProcessingError', 'message': f'Failed to build presentation: {str(e)}'}), 500
+        logger.error("[presentation_generator_bp] PPTX synthesis from outline failed: %s", e, exc_info=True)
+        _is_prod = os.getenv('FLASK_ENV', 'development').strip().lower() == 'production'
+        msg = 'Failed to build presentation.' if _is_prod else f'Failed to build presentation: {str(e)}'
+        return jsonify({'success': False, 'error': 'ProcessingError', 'message': msg}), 500
 
 
 @presentation_generator_bp.route('/generate', methods=['POST'])
@@ -272,11 +276,14 @@ def generate_presentation():
         }), 200
 
     except Exception as e:
-        logger.error(f"[presentation_generator_bp] Generation failed: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': 'ProcessingError', 'message': f'Failed to generate presentation: {str(e)}'}), 500
+        logger.error("[presentation_generator_bp] Generation failed: %s", e, exc_info=True)
+        _is_prod = os.getenv('FLASK_ENV', 'development').strip().lower() == 'production'
+        msg = 'Failed to generate presentation.' if _is_prod else f'Failed to generate presentation: {str(e)}'
+        return jsonify({'success': False, 'error': 'ProcessingError', 'message': msg}), 500
 
 
 @presentation_generator_bp.route('/download/<filename>', methods=['GET'])
+@jwt_required(optional=True)
 def download_presentation(filename: str):
     """Serve generated .pptx file for download."""
     try:
@@ -292,5 +299,5 @@ def download_presentation(filename: str):
             download_name=f"Presentation_{safe_filename}"
         )
     except Exception as e:
-        logger.error(f"[presentation_generator_bp] Download failed: {e}")
+        logger.error("[presentation_generator_bp] Download failed: %s", e)
         return jsonify({'success': False, 'error': 'InternalError', 'message': 'Failed to download file.'}), 500

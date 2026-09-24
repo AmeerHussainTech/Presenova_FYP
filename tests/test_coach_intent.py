@@ -27,7 +27,7 @@ def test_intent_classification():
 
 def test_coach_chat_processing():
     res = process_coach_chat("Grill me on my research methodology", current_state="INIT")
-    assert res["persona"] == "Dr. Alexander Vance"
+    assert res["persona"] == "Presenova AI Coach"
     assert res["intent"] == "viva_prep"
     assert res["next_state"] == "VIVA_PRACTICE"
     assert len(res["recommendations"]) > 0

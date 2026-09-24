@@ -1,5 +1,5 @@
 """
-Dr. Alexander Vance AI Coach State Machine
+Presenova AI Coach State Machine
 """
 
 import logging

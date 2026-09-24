@@ -1,7 +1,7 @@
 """
 Interactive AI Coach Intent Engine (Local TF-IDF + LogisticRegression + State Machine)
 
-Replaces external LLM API calls for Dr. Alexander Vance coaching with a local
+Replaces external LLM API calls for Presenova AI Coach with a local
 intent classification model and a finite-state conversation engine.
 """
 
@@ -178,7 +178,7 @@ def predict_intent(user_message: str) -> str:
 
 COACH_RESPONSES = {
     "greeting": (
-        "Hello! I am Dr. Alexander Vance, your AI Presentation Coach. "
+        "Hello! I am your Presenova AI Presentation Coach. "
         "I am ready to help you refine your slide design, vocal delivery, WPM pacing, and academic viva defense readiness. "
         "What specific aspect of your presentation would you like to rehearse first?"
     ),
@@ -224,7 +224,7 @@ def process_coach_chat(
         "intent": intent,
         "current_state": current_state,
         "next_state": next_state,
-        "persona": "Dr. Alexander Vance",
+        "persona": "Presenova AI Coach",
         "recommendations": [
             "Maintain controlled WPM between 130-150.",
             "Use silent pauses instead of filler words.",

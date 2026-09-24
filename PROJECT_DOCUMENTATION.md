@@ -2,6 +2,8 @@
 ## Complete Technical Specification, Architecture Manual & Deployment Guide
 **Release 1.1.0 (Post-Deployment Audit Edition) — Final Year Project (FYP)**
 
+> 💡 **Quick Viva & Defense Reference**: For a simplified, high-yield **"Kya, Kaise, Kyun & Tech Alternatives"** guide with Top 10 Examiner Questions and technical comparisons, see [PRESENOVA_ARCHITECTURE_VIVA_GUIDE.md](file:///c:/Users/Muhammad/Downloads/Presenova_Complete_Project/Presenova_Final/PRESENOVA_ARCHITECTURE_VIVA_GUIDE.md).
+
 ---
 
 ## 1. Executive Summary & Abstract

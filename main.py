@@ -32,11 +32,16 @@ from datetime import timedelta
 import os
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Load environment variables from absolute project root
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_ENV_PATH = os.path.join(_BASE_DIR, '.env')
+if os.path.exists(_ENV_PATH):
+    load_dotenv(dotenv_path=_ENV_PATH, override=True)
+else:
+    load_dotenv(override=True)
 
-# Global SocketIO instance
-socketio = SocketIO()
+# Global SocketIO instance (defaults to 'threading' for Gunicorn gthread compatibility on Render)
+socketio = SocketIO(async_mode=os.getenv('SOCKETIO_ASYNC_MODE', 'threading'))
 
 # Import blueprints
 from auth import auth_bp, register_jwt_error_handlers, signup, login, firebase_login, get_current_user, refresh
@@ -169,7 +174,7 @@ def create_app():
     jwt = JWTManager(app)
 
     # ===== CORS CONFIGURATION =====
-    DEFAULT_ALLOWED_ORIGINS = ['http://localhost:3000', 'http://localhost:5173']
+    DEFAULT_ALLOWED_ORIGINS = ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000', 'http://127.0.0.1:5173']
     cors_origins_env = os.getenv('CORS_ORIGINS', '').strip()
     if cors_origins_env and cors_origins_env != '*':
         parsed_origins = [o.strip() for o in cors_origins_env.split(',') if o.strip()]
@@ -184,12 +189,17 @@ def create_app():
         import re
         parsed_origins.append(re.compile(r"^https://.*\.vercel\.app$"))
 
+    # For SocketIO, cors_allowed_origins must be strings or '*'
+    socketio_origins = '*' if (flask_env != 'production' or allow_vercel_previews) else [o for o in parsed_origins if isinstance(o, str)]
+
     CORS(
         app,
         resources={r"/*": {
             "origins": parsed_origins,
-            "allow_headers": ["Content-Type", "Authorization"],
+            "allow_headers": ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
+            "expose_headers": ["Content-Type", "Authorization"],
             "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            "supports_credentials": True,
         }},
     )
 
@@ -205,16 +215,24 @@ def create_app():
         }), 413
 
     # ===== SOCKET.IO CONFIGURATION =====
-    socketio.init_app(app, cors_allowed_origins=parsed_origins)
+    socketio.init_app(app, cors_allowed_origins=socketio_origins)
 
-    # ===== DATABASE INITIALIZATION VERIFICATION =====
+    # ===== STARTUP HEALTH CHECK & VALIDATION =====
+    # Fails loudly if a required production service (Firestore, JWT) is not ready.
     with app.app_context():
         try:
-            from models import db
-            if db is not None:
-                logger.info("[INIT OK] Database layer initialized successfully")
+            from models import verify_database_health
+            db_health = verify_database_health()
+            if db_health.get("status") == "ok":
+                logger.info("[STARTUP OK] Database layer verified: %s", db_health.get("backend", "firestore"))
+            elif flask_env == 'production' and not os.getenv('ALLOW_IN_MEMORY_DB', 'false').lower() in ('1', 'true', 'yes', 'on'):
+                raise RuntimeError(f"FATAL: Database health check failed in production: {db_health}")
+            else:
+                logger.warning("[STARTUP WARN] Database initialized with degraded status: %s", db_health)
         except Exception as e:
-            logger.error("[INIT FAIL] Database initialization failed: %s", e)
+            logger.critical("[STARTUP CRITICAL] Database verification failed: %s", e)
+            if flask_env == 'production' and not os.getenv('ALLOW_IN_MEMORY_DB', 'false').lower() in ('1', 'true', 'yes', 'on'):
+                raise
 
     # ===== REGISTER JWT ERROR HANDLERS =====
     # Handles expired, invalid, and missing JWT tokens on JWTManager (ISSUE-04)
@@ -256,21 +274,31 @@ def create_app():
     # New Feature: AI Presentation Generator
     app.register_blueprint(presentation_generator_bp)
 
-    # ===== HEALTH-CHECK ENDPOINT =====
+    # ===== HEALTH-CHECK ENDPOINTS =====
     @app.route('/', methods=['GET'])
     def health_check():
         """Health check endpoint to verify the service is running."""
+        from models import _is_firestore_enabled
+        db_ready = _is_firestore_enabled()
         return jsonify({
             "status": "running",
             "service": "Presenova AI Presentation Platform",
             "version": "1.1.0",
-            "database": "Firebase Firestore"
+            "database": "Firebase Firestore" if db_ready else "in-memory fallback"
         }), 200
 
     @app.route('/api/health', methods=['GET'])
     def api_health():
-        """Render.com health check endpoint."""
-        return jsonify({"status": "ok"}), 200
+        """Render.com / uptime health check endpoint."""
+        from models import _is_firestore_enabled
+        db_ready = _is_firestore_enabled()
+        return jsonify({
+            "status": "ok",
+            "environment": os.getenv('FLASK_ENV', 'development'),
+            "database": "firestore" if db_ready else "in-memory",
+            "service": "Presenova Backend",
+            "version": "1.1.0"
+        }), 200
 
     @app.route('/downloads/<path:filename>', methods=['GET'])
     def serve_download(filename):
@@ -294,7 +322,22 @@ if __name__ == '__main__':
     host = os.getenv('HOST', '0.0.0.0')
     port = int(os.getenv('PORT', '5000'))
 
+    # Local port collision probe: check if port is already held by an orphaned process
+    import socket
+    test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    test_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        test_sock.bind((host, port))
+        test_sock.close()
+    except OSError as bind_err:
+        logger.critical(
+            f"[FATAL ERROR] Port {port} is already in use by another process! "
+            f"Please terminate any orphaned process holding port {port} before restarting."
+        )
+        sys.exit(1)
+
     # Run the Flask development server wrapped with Socket.IO
+    # use_reloader is explicitly False to prevent orphaned background reloader processes
     debug = os.getenv('FLASK_DEBUG', '0').strip().lower() in {'1', 'true', 'yes', 'on'}
     socketio_kwargs = {
         'host': host,
@@ -305,6 +348,7 @@ if __name__ == '__main__':
     if debug:
         socketio_kwargs['allow_unsafe_werkzeug'] = True
 
+    logger.info(f"Starting Presenova server on http://{host}:{port} (debug={debug}, reloader=False)")
     socketio.run(app, **socketio_kwargs)
 
 

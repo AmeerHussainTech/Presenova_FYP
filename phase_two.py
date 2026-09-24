@@ -264,9 +264,12 @@ def analyze_document():
             analysis_json["narrative_structure"] = dataclasses.asdict(narrative)
 
             # Inject top-level convenience metrics
-            analysis_json["total_slides"] = stats_dict.get("total_slides", len(slides_data))
+            analysis_json["total_slides"] = stats_dict.get("slide_count", len(slides_data))
             analysis_json["total_words"] = stats_dict.get("total_words", len(extracted_text.split()))
-            analysis_json["reading_time_minutes"] = stats_dict.get("estimated_duration_minutes", 0)
+            # FIX-2: Correct key name — field is estimated_presentation_duration_seconds, not estimated_duration_minutes
+            analysis_json["reading_time_minutes"] = round(
+                stats_dict.get("estimated_presentation_duration_seconds", 0) / 60, 1
+            )
             analysis_json["slides"] = slides_data
 
         except Exception as sub_err:

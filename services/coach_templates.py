@@ -1,10 +1,10 @@
 """
-Dr. Alexander Vance AI Coach Response Templates
+Presenova AI Coach Response Templates
 """
 
 COACH_RESPONSES = {
     "greeting": (
-        "Hello! I am Dr. Alexander Vance, your AI Presentation Coach. "
+        "Hello! I am your Presenova AI Presentation Coach. "
         "I am ready to help you refine your slide design, vocal delivery, WPM pacing, and academic viva defense readiness. "
         "What specific aspect of your presentation would you like to rehearse first?"
     ),

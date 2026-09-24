@@ -36,6 +36,10 @@ export const useLiveSession = ({ userId, videoRef }: UseLiveSessionProps) => {
   const [historySummary, setHistorySummary] = useState<any>(null);
   const [finalReport, setFinalReport] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  // FIX: true until the backend tells us otherwise, so we don't flash a
+  // warning before session_started arrives. Reflects whether GROQ_API_KEY is
+  // configured server-side (speech-to-text availability for WPM/fillers/pitch).
+  const [sttAvailable, setSttAvailable] = useState(true);
 
   const socketRef = useRef<Socket | null>(null);
   const videoIntervalRef = useRef<any>(null);
@@ -51,10 +55,21 @@ export const useLiveSession = ({ userId, videoRef }: UseLiveSessionProps) => {
     const socketHost = (import.meta as any).env?.VITE_SOCKET_URL || 
       (apiBase.startsWith('http') ? apiBase.replace(/\/api\/?$/, '') : window.location.origin);
 
+    const isLocalDev =
+      typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' ||
+       window.location.hostname === '127.0.0.1' ||
+       window.location.hostname === '::1');
+
     const socket = io(`${socketHost}/ws/live-session`, {
-      transports: ['websocket', 'polling'],
-      reconnectionAttempts: 5,
+      // In local dev on Werkzeug server, use polling to prevent Werkzeug's websocket upgrade ConnectionError crash
+      transports: isLocalDev ? ['polling'] : ['websocket', 'polling'],
+      upgrade: !isLocalDev,
+      reconnection: true,
+      reconnectionAttempts: 20,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 60000,
     });
 
     socket.on('connect', () => {
@@ -67,6 +82,7 @@ export const useLiveSession = ({ userId, videoRef }: UseLiveSessionProps) => {
         setSessionId(data.session_id);
         setHasHistory(data.has_history);
         setHistorySummary(data.history_summary);
+        setSttAvailable(data.stt_available !== false);
         setStatus('STREAMING');
       } else {
         setError('Failed to start session');
@@ -96,8 +112,18 @@ export const useLiveSession = ({ userId, videoRef }: UseLiveSessionProps) => {
       setStatus('STREAMING');
     });
 
-    socket.on('disconnect', () => {
-      console.log('Socket disconnected');
+    socket.on('disconnect', (reason: string) => {
+      console.log('Socket disconnected:', reason);
+      if (statusRef.current === 'STREAMING') {
+        setError('Lost real-time connection to the live coach server. Reconnecting...');
+      }
+    });
+
+    socket.on('connect_error', (err: any) => {
+      console.error('Socket connection error:', err);
+      if (statusRef.current === 'STREAMING') {
+        setError('Unable to reach the live coach server. Please check that the server is running.');
+      }
     });
 
     socketRef.current = socket;
@@ -187,16 +213,20 @@ export const useLiveSession = ({ userId, videoRef }: UseLiveSessionProps) => {
       const ctx = canvas.getContext('2d');
 
       videoIntervalRef.current = setInterval(() => {
-        if (videoRef.current && ctx && socketRef.current) {
-          canvas.width = 320; // Lower resolution for fast transmission
-          canvas.height = 240;
-          ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-          const frameBase64 = canvas.toDataURL('image/jpeg', 0.6); // 60% compression quality
+        const video = videoRef.current;
+        if (video && ctx && socketRef.current && statusRef.current === 'STREAMING') {
+          // Guard: Only capture when camera stream is actively delivering frames with valid dimensions
+          if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) {
+            canvas.width = 400; // Optimal resolution for facial landmark detection
+            canvas.height = 300;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const frameBase64 = canvas.toDataURL('image/jpeg', 0.7); // 70% quality for clean landmark detection
 
-          socketRef.current.emit('video_frame', {
-            session_id: sessionId,
-            frame: frameBase64,
-          });
+            socketRef.current.emit('video_frame', {
+              session_id: sessionId,
+              frame: frameBase64,
+            });
+          }
         }
       }, 333); // ~3 frames per second
 
@@ -212,34 +242,32 @@ export const useLiveSession = ({ userId, videoRef }: UseLiveSessionProps) => {
         mediaRecorderRef.current = mediaRecorder;
 
         mediaRecorder.ondataavailable = async (e) => {
-          if (e.data.size > 0 && socketRef.current && statusRef.current === 'STREAMING') {
-            // Read blob as base64 string
-            const reader = new FileReader();
-            reader.readAsDataURL(e.data);
-            reader.onloadend = () => {
-              const base64Audio = reader.result as string;
-              socketRef.current?.emit('audio_chunk', {
-                session_id: sessionId,
-                audio: base64Audio,
-                transcript_snippet: '', // Voice STT can optionally be generated on client
-              });
-            };
+          try {
+            if (e.data.size > 0 && socketRef.current && statusRef.current === 'STREAMING') {
+              // Read blob as base64 string
+              const reader = new FileReader();
+              reader.readAsDataURL(e.data);
+              reader.onloadend = () => {
+                const base64Audio = reader.result as string;
+                socketRef.current?.emit('audio_chunk', {
+                  session_id: sessionId,
+                  audio: base64Audio,
+                  transcript_snippet: '', // Voice STT can optionally be generated on client
+                });
+              };
+            }
+          } catch (audioErr) {
+            console.warn('Audio chunk processing warning:', audioErr);
           }
         };
 
-        // Record in 3-second slices
+        // Record in 3-second slices natively
         mediaRecorder.start(3000);
-
-        audioIntervalRef.current = setInterval(() => {
-          if (mediaRecorder.state === 'recording') {
-            mediaRecorder.requestData();
-          }
-        }, 3000);
       }).catch((err: any) => {
         // ISSUE-09: Gracefully handle rejected microphone permissions
-        console.error('Microphone access denied or error:', err);
-        setError(`Microphone access error: ${err?.message || 'Permission denied'}`);
-        stopSession();
+        // Do NOT terminate session — visual tracking (Eye contact, posture, confidence) continues!
+        console.warn('Microphone access denied or unavailable:', err);
+        setSttAvailable(false);
       });
     } else {
       stopMediaStreaming();
@@ -277,6 +305,7 @@ export const useLiveSession = ({ userId, videoRef }: UseLiveSessionProps) => {
     historySummary,
     finalReport,
     error,
+    sttAvailable,
     startSession,
     sendAnswer,
     stopSession,

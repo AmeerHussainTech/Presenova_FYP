@@ -143,13 +143,15 @@ def signup():
 
     except Exception as e:
         logger.error("Signup failed for %s: %s", email if 'email' in locals() else 'unknown', e, exc_info=True)
-
-        return jsonify({
+        _is_prod = os.getenv('FLASK_ENV', 'development').strip().lower() == 'production'
+        resp = {
             "success": False,
             "error": "RegistrationFailed",
             "message": "An error occurred during registration. Please try again.",
-            "details": str(e)
-        }), 500
+        }
+        if not _is_prod:
+            resp["details"] = str(e)
+        return jsonify(resp), 500
 
 
 @auth_bp.route('/login', methods=['POST'])
@@ -237,13 +239,15 @@ def login():
 
     except Exception as e:
         logger.error("Login error for %s: %s", email if 'email' in locals() else 'unknown', e, exc_info=True)
-
-        return jsonify({
+        _is_prod = os.getenv('FLASK_ENV', 'development').strip().lower() == 'production'
+        resp = {
             "success": False,
             "error": "LoginFailed",
             "message": "An error occurred during login. Please try again.",
-            "details": str(e)
-        }), 500
+        }
+        if not _is_prod:
+            resp["details"] = str(e)
+        return jsonify(resp), 500
 
 
 @auth_bp.route('/firebase-login', methods=['POST'])
@@ -303,22 +307,37 @@ def firebase_login():
                 if token_aud in firebase_admin._apps:
                     target_app = firebase_admin._apps[token_aud]
                 else:
-                    default_proj = getattr(firebase_admin._apps.get('[DEFAULT]'), 'project_id', None)
+                    default_app = firebase_admin._apps.get('[DEFAULT]')
+                    default_proj = getattr(default_app, 'project_id', None) or (
+                        default_app.options.get('projectId') if default_app and hasattr(default_app, 'options') else None
+                    )
                     if default_proj == token_aud:
-                        target_app = firebase_admin._apps.get('[DEFAULT]')
+                        target_app = default_app
                     else:
                         try:
                             target_app = firebase_admin.initialize_app(options={'projectId': token_aud}, name=token_aud)
+                        except ValueError:
+                            # App already initialized with this name concurrently
+                            target_app = firebase_admin._apps.get(token_aud)
                         except Exception as init_err:
                             logger.warning("Could not initialize target Firebase app for aud '%s': %s", token_aud, init_err)
 
-            # Verify with target app if available, or default app
+            # Verify with target app if available, or default app (with 60s clock skew tolerance for Render)
             if target_app is not None:
-                decoded_token = firebase_auth.verify_id_token(id_token, app=target_app, check_revoked=False)
+                decoded_token = firebase_auth.verify_id_token(
+                    id_token,
+                    app=target_app,
+                    check_revoked=False,
+                    clock_skew_seconds=60
+                )
             else:
                 if not firebase_admin._apps:
                     firebase_admin.initialize_app(options={'projectId': token_aud})
-                decoded_token = firebase_auth.verify_id_token(id_token, check_revoked=False)
+                decoded_token = firebase_auth.verify_id_token(
+                    id_token,
+                    check_revoked=False,
+                    clock_skew_seconds=60
+                )
         except getattr(firebase_auth, 'RevokedIdTokenError', Exception) as revoked_err:
             logger.warning("Revoked Firebase ID token: %s", revoked_err)
             return jsonify({
@@ -328,17 +347,24 @@ def firebase_login():
             }), 401
         except Exception as ver_err:
             logger.warning("Firebase ID token verification failed: %s", ver_err)
-            is_dev = os.getenv('FLASK_ENV', 'development').lower() != 'production'
+            is_dev = os.getenv('FLASK_ENV', 'development').strip().lower() != 'production'
             if is_dev and unverified_claims.get('sub'):
-                logger.info("[DEV AUTH] Permitting valid token claims in development mode despite verification error: %s", ver_err)
+                logger.critical(
+                    "[DEV AUTH BYPASS ACTIVE] Accepting unverified Firebase token claims in dev mode. "
+                    "This must NEVER fire in production. FLASK_ENV=%s",
+                    os.getenv('FLASK_ENV', 'development')
+                )
                 decoded_token = unverified_claims
             else:
-                return jsonify({
+                _is_prod = not is_dev
+                resp = {
                     "success": False,
                     "error": "Unauthorized",
                     "message": "Invalid or expired Firebase ID token. Please sign in again.",
-                    "details": str(ver_err)
-                }), 401
+                }
+                if not _is_prod:
+                    resp["details"] = str(ver_err)
+                return jsonify(resp), 401
 
         if not decoded_token or not isinstance(decoded_token, dict):
             return jsonify({
@@ -405,12 +431,15 @@ def firebase_login():
 
     except Exception as e:
         logger.error("Firebase login handler error: %s", e, exc_info=True)
-        return jsonify({
+        _is_prod = os.getenv('FLASK_ENV', 'development').strip().lower() == 'production'
+        resp = {
             "success": False,
             "error": "AuthenticationFailed",
             "message": "An error occurred during Firebase authentication.",
-            "details": str(e)
-        }), 500
+        }
+        if not _is_prod:
+            resp["details"] = str(e)
+        return jsonify(resp), 500
 
 
 @auth_bp.route('/me', methods=['GET'])
@@ -456,13 +485,15 @@ def get_current_user():
 
     except Exception as e:
         logger.error("Get user error: %s", e, exc_info=True)
-
-        return jsonify({
+        _is_prod = os.getenv('FLASK_ENV', 'development').strip().lower() == 'production'
+        resp = {
             "success": False,
             "error": "UserRetrievalFailed",
             "message": "An error occurred while fetching user information",
-            "details": str(e)
-        }), 500
+        }
+        if not _is_prod:
+            resp["details"] = str(e)
+        return jsonify(resp), 500
 
 
 @auth_bp.route('/history', methods=['GET'])
@@ -482,11 +513,15 @@ def get_user_history():
         }), 200
     except Exception as e:
         logger.error("Get history error: %s", e, exc_info=True)
-        return jsonify({
+        _is_prod = os.getenv('FLASK_ENV', 'development').strip().lower() == 'production'
+        resp = {
             "success": False,
             "error": "HistoryRetrievalFailed",
-            "message": str(e)
-        }), 500
+            "message": "Failed to retrieve user analysis history."
+        }
+        if not _is_prod:
+            resp["details"] = str(e)
+        return jsonify(resp), 500
 
 
 @auth_bp.route('/refresh', methods=['POST'])
@@ -508,11 +543,16 @@ def refresh():
             "message": "Token refreshed successfully"
         }), 200
     except Exception as e:
-        return jsonify({
+        logger.error("Token refresh error: %s", e, exc_info=True)
+        _is_prod = os.getenv('FLASK_ENV', 'development').strip().lower() == 'production'
+        resp = {
             "success": False,
             "error": "RefreshFailed",
-            "message": f"Token refresh failed: {str(e)}"
-        }), 500
+            "message": "Token refresh failed."
+        }
+        if not _is_prod:
+            resp["details"] = str(e)
+        return jsonify(resp), 500
 
 
 def register_jwt_error_handlers(jwt_or_app, app=None):

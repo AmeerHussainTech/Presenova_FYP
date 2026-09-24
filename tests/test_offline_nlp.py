@@ -8,6 +8,9 @@ if hasattr(sys.stdout, 'reconfigure'):
     except Exception:
         pass
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+os.environ['FORCE_OFFLINE_MODE'] = '1'
+
 from ai_evaluator import evaluate_7cs, compare_documents
 from services.analysis.context_verifier import verify_internal_context_consistency
 from services.viva_rag_engine import generate_viva_questions_rag

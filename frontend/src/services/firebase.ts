@@ -4,13 +4,16 @@ import {
   GoogleAuthProvider,
 } from 'firebase/auth';
 
+// FIX-4 (AGENTS.md §2): Never hardcode Firebase project credentials as fallbacks —
+// they leak project IDs into the production JS bundle even when minified.
+// Use isFirebaseConfigured() guard before calling signInWithPopup / signInWithRedirect.
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDemoKeyPlaceholder",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "fyp-integration-c620f.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "fyp-integration-c620f",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "fyp-integration-c620f.appspot.com",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "1234567890",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:1234567890:web:abcdef"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || '',
 };
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];

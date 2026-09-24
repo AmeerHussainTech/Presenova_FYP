@@ -309,7 +309,8 @@ def analyze_audio():
             
         # ===== STEP 2: TRANSCRIBE AUDIO (Groq Whisper API) =====
         transcript = ""
-        
+        stt_fallback = False  # FIX-6: track whether Groq STT succeeded or fell back
+
         if groq_client:
             logger.info("Transcribing audio using Groq Whisper API: %s", file.filename)
             try:
@@ -324,14 +325,17 @@ def analyze_audio():
                 logger.warning("Groq Whisper transcription rate-limited or timed out: %s", rate_err)
                 # Graceful degraded fallback to avoid hanging or failing
                 transcript = "Hello! Um, I am trying to explain this presentation. It covers our key objectives, methodology, and results."
+                stt_fallback = True
             except Exception as e:
                 logger.warning("Groq Whisper transcription failed: %s", e)
                 # Graceful fallback to avoid server crash
                 transcript = "Hello! Um, I am trying to explain this, you know, basically to the audience. Actually, it is kind of working well."
+                stt_fallback = True
         else:
             # Fallback mock transcription for local offline development
             logger.warning("GROQ_API_KEY not configured. Using fallback mock transcription.")
             transcript = "Hello! Um, I am trying to explain this, you know, basically to the audience. Actually, it is kind of working well."
+            stt_fallback = True
             
         if not transcript.strip():
             if permanent_audio_path and os.path.exists(permanent_audio_path):
@@ -382,6 +386,7 @@ def analyze_audio():
         analysis_result = {
             "success": True,
             "status": "success",
+            "stt_fallback": stt_fallback,   # FIX-6: frontend can show a warning if True
             "word_count": word_count,
             "speech_speed_wpm": speech_speed_wpm,
             "filler_words_count": filler_count,

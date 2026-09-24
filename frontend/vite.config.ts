@@ -29,6 +29,11 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'dist',
       sourcemap: false,
+      // FIX-3 (AGENTS.md §3): Strip all console.* calls and debugger statements from
+      // production bundle so no PII, tokens, or internal state leaks to browser DevTools.
+      esbuild: {
+        drop: ['console', 'debugger'],
+      },
       // AUDIT-12: Split the monolithic vendor bundle into per-library chunks so the browser
       // can cache dependencies independently and load them in parallel. Prevents the single
       // ~2 MB vendor chunk that was failing the Vite chunk-size warning on every build.

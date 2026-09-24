@@ -469,3 +469,341 @@
     align-items: stretch;
   }
 }
+
+/* ===== GEMINI STATUS & CONTROLS ===== */
+.gemini-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.gemini-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 9999px;
+  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  backdrop-filter: blur(8px);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot-active {
+  background-color: #10b981;
+  box-shadow: 0 0 8px #10b981;
+}
+
+.dot-standby {
+  background-color: #f59e0b;
+  box-shadow: 0 0 8px #f59e0b;
+}
+
+.gemini-badge-text {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #c4b5fd;
+  letter-spacing: 0.02em;
+}
+
+.gemini-key-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.gemini-key-btn:hover {
+  background: rgba(139, 92, 246, 0.15);
+  border-color: rgba(139, 92, 246, 0.4);
+  color: #a78bfa;
+  transform: translateY(-1px);
+}
+
+.gemini-notice-banner {
+  margin-top: 0.8rem;
+  display: inline-block;
+  padding: 0.4rem 1rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  animation: fadeIn 0.3s ease;
+}
+
+/* Sender Tag in Bubble */
+.message-sender-tag {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.45rem;
+}
+
+.coach-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #a78bfa;
+  letter-spacing: 0.02em;
+}
+
+.gemini-pill {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #22d3ee;
+  background: rgba(34, 211, 238, 0.12);
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  border-radius: 9999px;
+  padding: 0.1rem 0.5rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+/* Error Body & Action */
+.error-body {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.error-action-btn {
+  background: #ef4444;
+  color: white;
+  border: none;
+  padding: 0.25rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.error-action-btn:hover {
+  opacity: 0.85;
+}
+
+/* ===== GEMINI API KEY MODAL ===== */
+.gemini-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+  animation: fadeIn 0.2s ease;
+}
+
+.gemini-modal {
+  background: #0f172a;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 520px;
+  padding: 1.8rem;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 40px rgba(139, 92, 246, 0.15);
+  animation: messageSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.gemini-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.8rem;
+}
+
+.gemini-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.gemini-sparkle {
+  font-size: 1.25rem;
+}
+
+.gemini-modal-title h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #f8fafc;
+  margin: 0;
+}
+
+.gemini-modal-close {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.gemini-modal-close:hover {
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.gemini-modal-desc {
+  color: #94a3b8;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin-bottom: 1.4rem;
+}
+
+.gemini-modal-desc strong {
+  color: #c4b5fd;
+}
+
+.gemini-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1.6rem;
+}
+
+.gemini-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.gemini-label-row label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.toggle-visibility-btn {
+  background: transparent;
+  border: none;
+  color: #a78bfa;
+  font-size: 0.78rem;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.toggle-visibility-btn:hover {
+  text-decoration: underline;
+}
+
+.gemini-input-group input {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  color: #f8fafc;
+  font-size: 0.95rem;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.gemini-input-group input:focus {
+  outline: none;
+  border-color: #a78bfa;
+  box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.2);
+}
+
+.gemini-hint {
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-top: 0.2rem;
+}
+
+.gemini-hint a {
+  color: #38bdf8;
+  text-decoration: none;
+}
+
+.gemini-hint a:hover {
+  text-decoration: underline;
+}
+
+.gemini-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.8rem;
+}
+
+.gemini-btn-remove {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  padding: 0.6rem 1.1rem;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-right: auto;
+  transition: all 0.2s ease;
+}
+
+.gemini-btn-remove:hover {
+  background: rgba(239, 68, 68, 0.22);
+}
+
+.gemini-btn-cancel {
+  background: rgba(255, 255, 255, 0.05);
+  color: #94a3b8;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0.6rem 1.1rem;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.gemini-btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+}
+
+.gemini-btn-save {
+  background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+  color: white;
+  border: none;
+  padding: 0.6rem 1.3rem;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 15px rgba(139, 92, 246, 0.35);
+}
+
+.gemini-btn-save:hover:not(:disabled) {
+  opacity: 0.95;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(139, 92, 246, 0.5);
+}
+
+.gemini-btn-save:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

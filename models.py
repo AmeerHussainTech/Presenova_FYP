@@ -13,7 +13,13 @@ import threading
 
 from dotenv import load_dotenv
 
-load_dotenv()
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_ENV_PATH = os.path.join(_BASE_DIR, '.env')
+if os.path.exists(_ENV_PATH):
+    load_dotenv(dotenv_path=_ENV_PATH, override=True)
+else:
+    load_dotenv(override=True)
+
 logger = logging.getLogger(__name__)
 
 # ── Thread Lock for In-Memory Storage & State Fallback ───────────────────────
@@ -37,7 +43,7 @@ from firebase_admin import credentials, firestore as fs
 _firebase_app = None
 db = None
 
-FIRESTORE_TIMEOUT = 5.0
+FIRESTORE_TIMEOUT = 10.0
 
 def _disable_firestore():
     global _use_firestore
@@ -48,46 +54,122 @@ def _is_firestore_enabled():
     with _store_lock:
         return _use_firestore and db is not None
 
+def _sanitize_credential_dict(cred_dict: dict) -> dict:
+    """Ensure private_key has proper newlines and not literal escaped \\n strings."""
+    if isinstance(cred_dict, dict) and "private_key" in cred_dict:
+        pk = cred_dict.get("private_key", "")
+        if isinstance(pk, str) and "\\n" in pk:
+            cred_dict["private_key"] = pk.replace("\\n", "\n")
+    return cred_dict
+
 def _init_firebase():
     global _firebase_app, db
     if _firebase_app is not None:
         return
 
     cred_path = os.getenv('FIREBASE_CREDENTIALS_PATH', 'firebase-service-account.json')
+    if not os.path.isabs(cred_path):
+        cred_path = os.path.join(_BASE_DIR, cred_path)
+
     cred_json_str = os.getenv('FIREBASE_CREDENTIALS_JSON', '').strip()
+    private_key_env = os.getenv('FIREBASE_PRIVATE_KEY', '').strip()
+    client_email_env = os.getenv('FIREBASE_CLIENT_EMAIL', '').strip()
+    project_id_env = os.getenv('FIREBASE_PROJECT_ID', '').strip()
+
+    _flask_env = os.getenv('FLASK_ENV', 'development').strip().lower()
+    is_production = _flask_env == 'production'
+
+    if is_production and os.path.exists(cred_path) and not cred_json_str:
+        logger.critical(
+            "[SECURITY WARNING] firebase-service-account.json is present on disk in PRODUCTION. "
+            "This file contains a private key and must NEVER be deployed to production. "
+            "Set FIREBASE_CREDENTIALS_JSON in Render's secret store instead, and delete this file."
+        )
 
     try:
+        cred = None
         if cred_json_str:
             cred_dict = json.loads(cred_json_str)
+            cred_dict = _sanitize_credential_dict(cred_dict)
             cred = credentials.Certificate(cred_dict)
-            print("[DB OK] Firebase initialized from FIREBASE_CREDENTIALS_JSON env var")
+            logger.info("[DB OK] Firebase initialized from FIREBASE_CREDENTIALS_JSON env var")
+        elif private_key_env and client_email_env:
+            cred_dict = {
+                "type": "service_account",
+                "project_id": project_id_env or "presenova-fyp",
+                "private_key": private_key_env.replace("\\n", "\n"),
+                "client_email": client_email_env,
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
+            cred = credentials.Certificate(cred_dict)
+            logger.info("[DB OK] Firebase initialized from FIREBASE_PRIVATE_KEY & FIREBASE_CLIENT_EMAIL env vars")
         elif os.path.exists(cred_path):
-            cred = credentials.Certificate(cred_path)
-            print(f"[DB OK] Firebase initialized from credentials file: {cred_path}")
+            with open(cred_path, 'r', encoding='utf-8') as f:
+                raw_dict = json.load(f)
+            cred_dict = _sanitize_credential_dict(raw_dict)
+            cred = credentials.Certificate(cred_dict)
+            logger.info("[DB OK] Firebase initialized from credentials file: %s", cred_path)
         else:
-            print("[DB WARN] Firebase credentials file not found. Using local in-memory database.")
+            allow_in_memory = os.getenv('ALLOW_IN_MEMORY_DB', 'false').lower() in ('1', 'true', 'yes', 'on')
+            if is_production and not allow_in_memory:
+                raise RuntimeError(
+                    "FATAL: Firebase credentials not found in production! "
+                    "Set FIREBASE_CREDENTIALS_JSON in Render's dashboard environment variables."
+                )
+            logger.warning("[DB WARN] Firebase credentials not found. Using in-memory database.")
             _disable_firestore()
             return
 
         _firebase_app = firebase_admin.initialize_app(cred)
 
-        # Fast credential probe: verifies token refresh in < 1 second to detect clock skew or bad credentials
-        # If this fails, fail-fast immediately to in-memory store without blocking HTTP requests for 300s
+        # Fast credential probe: verifies token refresh in < 2 seconds to detect bad credentials or clock skew
         try:
             import google.auth.transport.requests
             req = google.auth.transport.requests.Request()
             cred.get_credential().refresh(req)
             db = fs.client()
-            print("[DB OK] Connected to Firebase Firestore and credentials verified.")
+            logger.info("[DB OK] Connected to Firebase Firestore and credentials verified.")
         except Exception as auth_err:
-            print(f"[DB WARN] Firebase credentials verification failed ({auth_err}).")
-            print("[DB WARN] Clock skew or invalid grant detected. Falling back to local in-memory database.")
+            logger.error("[DB ERROR] Firebase credentials verification failed: %s", auth_err)
+            allow_in_memory = os.getenv('ALLOW_IN_MEMORY_DB', 'false').lower() in ('1', 'true', 'yes', 'on')
+            if is_production and not allow_in_memory:
+                raise RuntimeError(f"FATAL: Firebase Firestore credentials verification failed in production: {auth_err}")
+            logger.warning("[DB WARN] Falling back to in-memory database in development mode.")
             _disable_firestore()
             return
 
     except Exception as e:
-        print(f"[DB WARN] Firebase initialization error ({str(e)}). Fallback to in-memory database active.")
+        logger.error("[DB ERROR] Firebase initialization error: %s", e)
+        allow_in_memory = os.getenv('ALLOW_IN_MEMORY_DB', 'false').lower() in ('1', 'true', 'yes', 'on')
+        if is_production and not allow_in_memory:
+            raise RuntimeError(f"FATAL: Firebase initialization failed in production: {e}")
+        logger.warning("[DB WARN] Fallback to in-memory database active.")
         _disable_firestore()
+
+def verify_database_health() -> dict:
+    """
+    Startup health probe: verifies that the database layer is truly functional.
+    Returns a dict with diagnostic info, or raises an exception if required in production.
+    """
+    _flask_env = os.getenv('FLASK_ENV', 'development').strip().lower()
+    is_production = _flask_env == 'production'
+    allow_in_memory = os.getenv('ALLOW_IN_MEMORY_DB', 'false').lower() in ('1', 'true', 'yes', 'on')
+
+    if _is_firestore_enabled():
+        try:
+            # Perform a fast read to verify connection
+            _ = db.collection("users").limit(1).get(timeout=5.0)
+            return {"status": "ok", "backend": "firestore", "connected": True}
+        except Exception as exc:
+            msg = f"Firestore health check failed: {exc}"
+            logger.error(f"[HEALTH FAIL] {msg}")
+            if is_production and not allow_in_memory:
+                raise RuntimeError(f"FATAL: {msg}")
+            return {"status": "degraded", "backend": "in-memory-fallback", "error": str(exc)}
+    else:
+        if is_production and not allow_in_memory:
+            raise RuntimeError("FATAL: Database is running on in-memory store in production! Firestore is required.")
+        return {"status": "warning", "backend": "in-memory", "connected": False}
 
 _init_firebase()
 
@@ -161,8 +243,7 @@ class User:
                         created_at=d.get("created_at"), updated_at=d.get("updated_at")
                     )
             except Exception as e:
-                logger.warning(f"[DB FALLBACK] Firestore error on get_by_email: {e}. Switching to in-memory store.")
-                _disable_firestore()
+                logger.warning(f"[DB WARN] Firestore error on get_by_email: {e}. Falling back to in-memory store.")
 
         # In-memory search with thread lock
         with _store_lock:
@@ -194,8 +275,7 @@ class User:
                         created_at=d.get("created_at"), updated_at=d.get("updated_at")
                     )
             except Exception as e:
-                logger.warning(f"[DB FALLBACK] Firestore error on get_by_id: {e}. Switching to in-memory store.")
-                _disable_firestore()
+                logger.warning(f"[DB WARN] Firestore error on get_by_id: {e}. Falling back to in-memory store.")
 
         # In-memory lookup with thread lock
         with _store_lock:
@@ -237,8 +317,7 @@ class User:
             try:
                 db.collection("users").document(user_id).set(doc, merge=True, timeout=FIRESTORE_TIMEOUT)
             except Exception as e:
-                logger.warning(f"[DB FALLBACK] Firestore error on User.create_with_id: {e}")
-                _disable_firestore()
+                logger.warning(f"[DB WARN] Firestore error on User.create_with_id: {e}")
 
         return User(
             id=user_id, uid=user_id, name=name, email=email,
@@ -293,8 +372,7 @@ class Upload:
             try:
                 db.collection("uploads").document(upload_id).set(doc)
             except Exception as e:
-                logger.warning(f"[DB FALLBACK] Firestore error on Upload.create: {e}")
-                _disable_firestore()
+                logger.warning(f"[DB WARN] Firestore error on Upload.create: {e}")
 
         return Upload(
             id=upload_id, filename=filename, mime_type=mime_type,
@@ -349,8 +427,7 @@ class Report:
             try:
                 db.collection("reports").document(report_id).set(doc)
             except Exception as e:
-                logger.warning(f"[DB FALLBACK] Firestore error on Report.create: {e}")
-                _disable_firestore()
+                logger.warning(f"[DB WARN] Firestore error on Report.create: {e}")
 
         return Report(
             id=report_id, report_json=report_json, report_type=report_type,
@@ -377,8 +454,7 @@ class Report:
                     ))
                 return reports
             except Exception as e:
-                logger.warning(f"[DB FALLBACK] Firestore error on Report.get_by_user: {e}")
-                _disable_firestore()
+                logger.warning(f"[DB WARN] Firestore error on Report.get_by_user: {e}")
 
         # In-memory search with thread lock
         with _store_lock:
@@ -461,8 +537,7 @@ class PresentationSession:
             try:
                 db.collection("presentation_sessions").document(session_id).set(doc)
             except Exception as e:
-                logger.warning(f"[DB FALLBACK] Firestore error on PresentationSession.create: {e}")
-                _disable_firestore()
+                logger.warning(f"[DB WARN] Firestore error on PresentationSession.create: {e}")
 
         return PresentationSession(
             id=session_id, user_id=user_id, topic=topic,
@@ -498,8 +573,7 @@ class PresentationSession:
                         _MEMORY_STORE["presentation_sessions"][session_id] = d
                     return sess
             except Exception as e:
-                logger.warning(f"[DB FALLBACK] Firestore error on PresentationSession.get_by_id: {e}")
-                _disable_firestore()
+                logger.warning(f"[DB WARN] Firestore error on PresentationSession.get_by_id: {e}")
 
         return None
 
@@ -563,8 +637,7 @@ class PresentationSession:
                     "ended_at": now,
                 })
             except Exception as e:
-                logger.warning(f"[DB FALLBACK] Firestore update_status error: {e}")
-                _disable_firestore()
+                logger.warning(f"[DB WARN] Firestore update_status error: {e}")
 
     def to_dict(self) -> dict:
         return {
@@ -612,8 +685,7 @@ class HistoricalReport:
             try:
                 db.collection("historical_reports").document(report_id).set(doc)
             except Exception as e:
-                logger.warning(f"[DB FALLBACK] Firestore error on HistoricalReport.create: {e}")
-                _disable_firestore()
+                logger.warning(f"[DB WARN] Firestore error on HistoricalReport.create: {e}")
 
         return HistoricalReport(
             id=report_id, session_id=session_id, user_id=user_id,
@@ -641,8 +713,7 @@ class HistoricalReport:
                     ))
                 return reports
             except Exception as e:
-                logger.warning(f"[DB FALLBACK] Firestore error on get_by_user_and_topic: {e}")
-                _disable_firestore()
+                logger.warning(f"[DB WARN] Firestore error on get_by_user_and_topic: {e}")
 
         with _store_lock:
             hr_list = list(_MEMORY_STORE["historical_reports"].values())
