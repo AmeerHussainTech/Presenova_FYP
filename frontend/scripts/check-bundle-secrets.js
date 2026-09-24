@@ -45,6 +45,7 @@ const SECRET_PATTERNS = [
 const allowedPublicKeys = new Set(
   [
     process.env.VITE_FIREBASE_API_KEY,
+    'AIzaSyAMEhMCPszf1ilhrM89rIUM5zvGp3PcyhQ', // fyp-firebase-df1f6-cfc8e web client key
     'AIzaSyCyjQw9-oy4gulqi_2tYRllLLIqVXcedHU', // fyp-firebase-df1f6 dev key
     'AIzaSyBgcwJCx3_ajBXSe6fg2L4cDz1H2izjOqM', // fyp-firebase-df1f6 prod key
   ].filter(Boolean)
