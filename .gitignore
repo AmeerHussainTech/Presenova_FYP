@@ -55,6 +55,7 @@ Thumbs.db
 .env*.local
 !.env.example
 !frontend/.env.example
+RENDER_ENV_VARIABLES.txt
 
 # Logs & Databases
 *.log
