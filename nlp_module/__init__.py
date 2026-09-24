@@ -1,9 +1,9 @@
 try:
-    from scoring_model import score_text_offline
-    from feedback_templates import generate_offline_feedback
-except ImportError:
     from .scoring_model import score_text_offline
     from .feedback_templates import generate_offline_feedback
+except ImportError:
+    from scoring_model import score_text_offline
+    from feedback_templates import generate_offline_feedback
 
 def evaluate_text_offline(text, module_type='document'):
     """

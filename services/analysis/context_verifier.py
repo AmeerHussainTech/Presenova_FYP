@@ -29,6 +29,9 @@ _SENTENCE_MODEL = None
 def _load_sentence_model():
     global _SENTENCE_MODEL
     if _SENTENCE_MODEL is None:
+        if os.getenv('DISABLE_HEAVY_ML', 'false').lower() in ('1', 'true', 'yes', 'on'):
+            _SENTENCE_MODEL = False
+            return None
         try:
             from sentence_transformers import SentenceTransformer
             _SENTENCE_MODEL = SentenceTransformer("all-MiniLM-L6-v2")

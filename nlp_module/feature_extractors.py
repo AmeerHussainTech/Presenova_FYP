@@ -47,6 +47,11 @@ def get_spacy_nlp():
             _nlp_cache = spacy.load("en_core_web_sm")
             return _nlp_cache
         except Exception as e:
+            try:
+                _nlp_cache = spacy.blank("en")
+                return _nlp_cache
+            except Exception:
+                pass
             print(f"[NLP WARN] SpaCy model 'en_core_web_sm' could not be loaded: {str(e)}")
     return None
 

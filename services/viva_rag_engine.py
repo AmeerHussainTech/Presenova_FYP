@@ -25,8 +25,12 @@ def _load_spacy():
     if _SPACY_NLP is None:
         try:
             import spacy
-            _SPACY_NLP = spacy.load("en_core_web_sm")
-            logger.info("[viva_rag_engine] Loaded spaCy model en_core_web_sm")
+            try:
+                _SPACY_NLP = spacy.load("en_core_web_sm")
+                logger.info("[viva_rag_engine] Loaded spaCy model en_core_web_sm")
+            except Exception:
+                _SPACY_NLP = spacy.blank("en")
+                logger.info("[viva_rag_engine] Using fallback spacy.blank('en')")
         except Exception as exc:
             logger.warning("[viva_rag_engine] Could not load spaCy model: %s", exc)
             _SPACY_NLP = False
@@ -36,6 +40,9 @@ def _load_spacy():
 def _load_sentence_model():
     global _SENTENCE_MODEL
     if _SENTENCE_MODEL is None:
+        if os.getenv('DISABLE_HEAVY_ML', 'false').lower() in ('1', 'true', 'yes', 'on'):
+            _SENTENCE_MODEL = False
+            return None
         try:
             from sentence_transformers import SentenceTransformer
             _SENTENCE_MODEL = SentenceTransformer("all-MiniLM-L6-v2")

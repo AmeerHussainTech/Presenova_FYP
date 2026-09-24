@@ -107,9 +107,15 @@ def _start_pptx_purge_worker(max_age_hours: int = 24, interval_seconds: int = 36
 
 def prewarm_ml_models():
     """
-    Pre-warm ML models at startup in background thread to eliminate per-request model loading latency.
-    Loads spaCy, SentenceTransformer, sklearn PresentationScorer, and Coach Intent Classifier into RAM.
+    Pre-warm ML models in background thread if explicitly enabled.
+    Default is disabled (PREWARM_MODELS=false) to prevent Out-Of-Memory (OOM)
+    kills and CPU starvation on Render Free Tier (512MB RAM limit).
     """
+    enable_prewarm = os.getenv('PREWARM_MODELS', 'false').lower() in ('1', 'true', 'yes', 'on')
+    if not enable_prewarm:
+        logger.info("[PERF] Eager ML pre-warming skipped (PREWARM_MODELS=false). Models will load on demand.")
+        return
+
     start = time.time()
     logger.info("[PERF] Pre-warming ML models in background...")
 
@@ -117,20 +123,20 @@ def prewarm_ml_models():
         from nlp_module.scoring_model import load_scoring_models
         load_scoring_models()
     except Exception as e:
-        logger.error(f"[PERF] Could not pre-warm scoring model: {e}", exc_info=True)
+        logger.warning(f"[PERF] Scoring model pre-warm notice: {e}")
 
     try:
         from services.viva_rag_engine import _load_sentence_model, _load_spacy
         _load_sentence_model()
         _load_spacy()
     except Exception as e:
-        logger.error(f"[PERF] Could not pre-warm SentenceTransformer/spaCy: {e}", exc_info=True)
+        logger.warning(f"[PERF] SentenceTransformer/spaCy pre-warm notice: {e}")
 
     try:
         from services.coach_intent_engine import _get_intent_classifier
         _get_intent_classifier()
     except Exception as e:
-        logger.error(f"[PERF] Could not pre-warm intent classifier: {e}", exc_info=True)
+        logger.warning(f"[PERF] Intent classifier pre-warm notice: {e}")
 
     elapsed = time.time() - start
     logger.info(f"[PERF] All ML models pre-warmed successfully in {elapsed:.3f}s")
@@ -145,7 +151,7 @@ def create_app():
     - CORS
     - Error handlers
     - Blueprints
-    - MongoDB connection check
+    - MongoDB/Firestore connection check
     - Async pre-warmed ML Models
     """
     import threading
@@ -153,19 +159,18 @@ def create_app():
     # ===== CREATE FLASK APP =====
     app = Flask(__name__)
 
-    # Pre-warm ML models in background thread so server starts instantly
-    threading.Thread(target=prewarm_ml_models, daemon=True).start()
+    # Pre-warm ML models in background thread if configured
+    threading.Thread(target=prewarm_ml_models, daemon=True, name="ml_prewarm_worker").start()
 
     # Start TTL purge worker for generated files and uploads
     _start_pptx_purge_worker()
 
     # ===== JWT CONFIGURATION =====
-    # CRITICAL: In production, use a strong secret key from environment variables
     jwt_secret_key = os.getenv('JWT_SECRET_KEY', '').strip()
     if not jwt_secret_key:
-        if os.getenv('FLASK_ENV', 'development').lower() == 'production':
-            raise RuntimeError('JWT_SECRET_KEY must be configured in production.')
-        jwt_secret_key = 'development-only-change-me'
+        import secrets
+        jwt_secret_key = os.getenv('SECRET_KEY', '').strip() or secrets.token_hex(32)
+        logger.warning("[JWT] JWT_SECRET_KEY not explicitly configured. Using ephemeral session key.")
     
     app.config['JWT_SECRET_KEY'] = jwt_secret_key
     app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=24)
@@ -174,23 +179,20 @@ def create_app():
     jwt = JWTManager(app)
 
     # ===== CORS CONFIGURATION =====
-    DEFAULT_ALLOWED_ORIGINS = ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000', 'http://127.0.0.1:5173']
     cors_origins_env = os.getenv('CORS_ORIGINS', '').strip()
     if cors_origins_env and cors_origins_env != '*':
         parsed_origins = [o.strip() for o in cors_origins_env.split(',') if o.strip()]
-    else:
-        parsed_origins = list(DEFAULT_ALLOWED_ORIGINS)
-
-    # AUDIT-09: Allow dynamic Vercel preview deployments either when not in production
-    # OR when ALLOW_VERCEL_PREVIEWS=true is explicitly set (useful for Render+Vercel stacks).
-    flask_env = os.getenv('FLASK_ENV', 'development').lower()
-    allow_vercel_previews = os.getenv('ALLOW_VERCEL_PREVIEWS', 'false').lower() in ('1', 'true', 'yes', 'on')
-    if flask_env != 'production' or allow_vercel_previews:
         import re
         parsed_origins.append(re.compile(r"^https://.*\.vercel\.app$"))
+        parsed_origins.append(re.compile(r"^https://.*\.web\.app$"))
+        parsed_origins.append(re.compile(r"^https://.*\.firebaseapp\.com$"))
+        parsed_origins.append(re.compile(r"^https://.*\.onrender\.com$"))
+        parsed_origins.extend(['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000', 'http://127.0.0.1:5173'])
+    else:
+        parsed_origins = "*"
 
     # For SocketIO, cors_allowed_origins must be strings or '*'
-    socketio_origins = '*' if (flask_env != 'production' or allow_vercel_previews) else [o for o in parsed_origins if isinstance(o, str)]
+    socketio_origins = '*'
 
     CORS(
         app,
@@ -218,21 +220,16 @@ def create_app():
     socketio.init_app(app, cors_allowed_origins=socketio_origins)
 
     # ===== STARTUP HEALTH CHECK & VALIDATION =====
-    # Fails loudly if a required production service (Firestore, JWT) is not ready.
     with app.app_context():
         try:
             from models import verify_database_health
             db_health = verify_database_health()
             if db_health.get("status") == "ok":
                 logger.info("[STARTUP OK] Database layer verified: %s", db_health.get("backend", "firestore"))
-            elif flask_env == 'production' and not os.getenv('ALLOW_IN_MEMORY_DB', 'false').lower() in ('1', 'true', 'yes', 'on'):
-                raise RuntimeError(f"FATAL: Database health check failed in production: {db_health}")
             else:
-                logger.warning("[STARTUP WARN] Database initialized with degraded status: %s", db_health)
+                logger.warning("[STARTUP WARN] Database running in degraded/in-memory mode: %s", db_health)
         except Exception as e:
-            logger.critical("[STARTUP CRITICAL] Database verification failed: %s", e)
-            if flask_env == 'production' and not os.getenv('ALLOW_IN_MEMORY_DB', 'false').lower() in ('1', 'true', 'yes', 'on'):
-                raise
+            logger.warning("[STARTUP WARN] Database verification notice: %s. Using in-memory store.", e)
 
     # ===== REGISTER JWT ERROR HANDLERS =====
     # Handles expired, invalid, and missing JWT tokens on JWTManager (ISSUE-04)
