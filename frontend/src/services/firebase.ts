@@ -29,7 +29,15 @@ export const isElectron = (): boolean => {
 
 export const isFirebaseConfigured = (): boolean => {
   const key = import.meta.env.VITE_FIREBASE_API_KEY;
-  return Boolean(key && key !== "AIzaSyDemoKeyPlaceholder" && !key.includes("Placeholder"));
+  return Boolean(
+    key &&
+    key.trim() !== '' &&
+    key !== 'your-firebase-api-key' &&
+    key !== 'AIzaSyDemoKeyPlaceholder' &&
+    !key.includes('Placeholder') &&
+    !key.includes('your-') &&
+    key.length > 20
+  );
 };
 
 /**
@@ -37,6 +45,10 @@ export const isFirebaseConfigured = (): boolean => {
  */
 export const getFirebaseErrorMessage = (error: any): string => {
   const code = error?.code || '';
+  const message = error?.message || '';
+  if (code === 'auth/api-key-not-valid' || code === 'auth/invalid-api-key' || message.includes('api-key-not-valid')) {
+    return 'Firebase Web API Key is not configured on Render. Please use the Email & Password form below (Sign Up / Log In) to access your account.';
+  }
   switch (code) {
     case 'auth/invalid-email':
       return 'Please enter a valid email address.';

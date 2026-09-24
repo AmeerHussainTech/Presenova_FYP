@@ -93,7 +93,7 @@ const Login: React.FC = () => {
     setIsLoading(true);
 
     if (!isFirebaseConfigured()) {
-      setError('Google Sign-In requires VITE_FIREBASE_API_KEY in frontend/.env. Please log in using Email & Password.');
+      setError('Firebase Web API Key is not configured on Render yet. Please use the Email & Password form below (Sign Up / Log In) to access your account.');
       setIsLoading(false);
       return;
     }
