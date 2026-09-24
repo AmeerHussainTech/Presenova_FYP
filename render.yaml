@@ -27,10 +27,10 @@ services:
         value: "threading"
       - key: GROQ_API_KEY
         sync: false
-      - key: ALLOW_VERCEL_PREVIEWS
+      - key: ALLOW_IN_MEMORY_DB
         value: "true"
       - key: CORS_ORIGINS
-        value: "https://presenova.vercel.app"  # localhost must NOT appear in production
+        value: "https://fyp-firebase-df1f6-cfc8e.web.app,https://fyp-firebase-df1f6-cfc8e.firebaseapp.com,https://presenova.vercel.app,http://localhost:3000,http://localhost:5173"
       - key: ENABLE_GRAMMAR_CHECK
         value: "1"
       - key: LANGUAGETOOL_API_URL
