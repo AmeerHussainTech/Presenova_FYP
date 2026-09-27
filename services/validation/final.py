@@ -74,6 +74,23 @@ class FinalValidator:
         # 4. Determine final grade
         overall_improved = scores.get('overall_improved', 75)
         overall_original = scores.get('overall_original', 70)
+
+        # Safeguard: if overall_improved is 0 or invalid, compute from category scores
+        category_scores_dict = scores.get('category_scores', {})
+        if (not overall_improved or overall_improved < 30) and category_scores_dict:
+            cat_vals = [v for v in category_scores_dict.values() if isinstance(v, (int, float))]
+            if cat_vals:
+                overall_improved = round(sum(cat_vals) / len(cat_vals))
+            else:
+                overall_improved = max(overall_original, 75)
+        if not overall_original or overall_original < 30:
+            orig_cat_dict = scores.get('original_category_scores', {})
+            orig_vals = [v for v in orig_cat_dict.values() if isinstance(v, (int, float))]
+            if orig_vals:
+                overall_original = round(sum(orig_vals) / len(orig_vals))
+            else:
+                overall_original = min(overall_improved, 70)
+
         grade = self._score_to_grade(overall_improved)
         original_grade = self._score_to_grade(overall_original)
 

@@ -195,16 +195,22 @@ def evaluate_7cs(text: str, module_type: str, context_metrics: dict) -> dict:
                 "Concrete": max(20, overall_score - 8),
                 "Consistent": max(20, overall_score - 14)
             }
+            grammar_note_text = grammar_summary_text[:200] if grammar_summary_text else 'See detailed grammar report.'
+            grammar_detail_low = (
+                'No significant grammar issues detected.'
+                if not grammar_issues
+                else f"{len(grammar_issues)} grammar issue(s) were flagged. Key areas: {grammar_note_text}"
+            )
             detailed_feedback = (
                 f"STRUCTURE ASSESSMENT: This presentation scored {overall_score}/100. "
                 f"It contains {word_count} words across an estimated {max(1, sentence_count // 5)} slides, "
                 f"which is {'below the recommended 200+ words for a complete deck' if word_count < 200 else 'within acceptable range'}. "
                 f"The content appears {structure_adj} with {'clear sectioning evident' if has_structure else 'no clear slide or section markers detected'}.\n\n"
                 f"LANGUAGE QUALITY: Grammar score is {computed_grammar_score}/100 (Grade {_grammar_grade(computed_grammar_score)}). "
-                f"{'No significant grammar issues detected.' if not grammar_issues else f'{len(grammar_issues)} grammar issue(s) were flagged. Key areas: {grammar_summary_text[:200] if grammar_summary_text else "See detailed grammar report."}'}. "
+                f"{grammar_detail_low}. "
                 f"Sentence length variety is rated {sentence_variety_score}/100 — aim for a mix of short (under 10 words) and developed (15–25 words) sentences.\n\n"
                 f"TOP 3 PRIORITY ACTIONS: (1) {'Add clear slide-by-slide structure with titled sections.' if not has_structure else 'Deepen the content with domain-specific evidence and data.'}  "
-                f"(2) {'Reduce the {filler_count} detected informal expressions to maintain professional register.' if filler_count > 0 else 'Maintain the professional register throughout all slides.'}  "
+                f"(2) {'Reduce the ' + str(filler_count) + ' detected informal expressions to maintain professional register.' if filler_count > 0 else 'Maintain the professional register throughout all slides.'}  "
                 f"(3) {'Improve grammar quality — address the flagged issues before presenting.' if computed_grammar_score < 70 else 'Strengthen your call-to-action slide with a concrete next step or decision request.'}"
             )
         else:
@@ -237,13 +243,19 @@ def evaluate_7cs(text: str, module_type: str, context_metrics: dict) -> dict:
                 "Concrete": min(100, overall_score + 1),
                 "Consistent": min(100, overall_score + 2)
             }
+            grammar_review_text = grammar_summary_text[:150] if grammar_summary_text else 'Review the grammar report.'
+            grammar_detail_high = (
+                'No grammar issues detected — excellent writing quality.'
+                if not grammar_issues
+                else f"{len(grammar_issues)} minor grammar issue(s) were flagged: {grammar_review_text}"
+            )
             detailed_feedback = (
                 f"STRUCTURE ASSESSMENT: This presentation scored {overall_score}/100 overall. "
                 f"It contains {word_count} words across an estimated {max(1, sentence_count // 5)} slides — "
                 f"{'a thorough and comprehensive deck' if word_count > 400 else 'a solid foundation'}. "
                 f"The content is {structure_adj}, {'with recognizable section markers and clear slide flow' if has_structure else 'with room to strengthen the slide-by-slide organization'}.\n\n"
                 f"LANGUAGE QUALITY: Grammar score is {computed_grammar_score}/100 (Grade {_grammar_grade(computed_grammar_score)}). "
-                f"{'No grammar issues detected — excellent writing quality.' if not grammar_issues else f'{len(grammar_issues)} minor grammar issue(s) were flagged: {grammar_summary_text[:150] if grammar_summary_text else "Review the grammar report."}'}. "
+                f"{grammar_detail_high}. "
                 f"Sentence variety is {variety_adj} ({sentence_variety_score}/100), which {'helps' if sentence_variety_score >= 40 else 'could be improved to better'} maintain audience engagement.\n\n"
                 f"TOP 3 PRIORITY ACTIONS: "
                 f"(1) {'Fix the ' + str(len(grammar_issues)) + ' flagged grammar issue(s) before your final presentation.' if grammar_issues else 'Run a final proofreading pass to catch any late-stage edits.'}  "
