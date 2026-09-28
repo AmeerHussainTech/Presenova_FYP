@@ -73,7 +73,7 @@ def signup():
 
         # Validate required fields
         name = data.get('name', '').strip()
-        email = data.get('email', '').strip()
+        email = data.get('email', '').strip().lower()
         password = data.get('password', '').strip()
 
         if not all([name, email, password]):
@@ -187,7 +187,7 @@ def login():
             }), 400
 
         # Validate required fields
-        email = data.get('email', '').strip()
+        email = data.get('email', '').strip().lower()
         password = data.get('password', '').strip()
 
         if not email or not password:

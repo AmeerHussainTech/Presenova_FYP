@@ -22,10 +22,15 @@ else:
 
 logger = logging.getLogger(__name__)
 
-# ── Thread Lock for In-Memory Storage & State Fallback ───────────────────────
+# ── Thread Lock for Storage & Local Store Persistence ─────────────────────────
 _store_lock = threading.RLock()
 
-# ── In-Memory Storage Fallback ────────────────────────────────────────────────
+# ── Local Persistent Disk Fallback ───────────────────────────────────────────
+_INSTANCE_DIR = os.path.join(_BASE_DIR, 'instance')
+os.makedirs(_INSTANCE_DIR, exist_ok=True)
+_LOCAL_STORE_PATH = os.path.join(_INSTANCE_DIR, 'presenova_store.json')
+
+# ── In-Memory / Local Storage Fallback ───────────────────────────────────────
 _MEMORY_STORE = {
     "users": {},                 # id -> dict
     "uploads": {},               # id -> dict
@@ -33,6 +38,36 @@ _MEMORY_STORE = {
     "presentation_sessions": {}, # id -> dict
     "historical_reports": {},    # id -> dict
 }
+
+def _json_serial(obj):
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Type {type(obj)} not serializable")
+
+def _load_local_store():
+    global _MEMORY_STORE
+    with _store_lock:
+        if os.path.exists(_LOCAL_STORE_PATH):
+            try:
+                with open(_LOCAL_STORE_PATH, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        for k in ("users", "uploads", "reports", "presentation_sessions", "historical_reports"):
+                            if k in data and isinstance(data[k], dict):
+                                _MEMORY_STORE[k].update(data[k])
+                logger.info(f"[DB LOCAL] Loaded persistent store from {_LOCAL_STORE_PATH}: {len(_MEMORY_STORE['users'])} users, {len(_MEMORY_STORE['reports'])} reports")
+            except Exception as e:
+                logger.warning(f"[DB LOCAL] Could not load persistent store: {e}")
+
+def _save_local_store():
+    with _store_lock:
+        try:
+            tmp_path = _LOCAL_STORE_PATH + ".tmp"
+            with open(tmp_path, 'w', encoding='utf-8') as f:
+                json.dump(_MEMORY_STORE, f, default=_json_serial, indent=2)
+            os.replace(tmp_path, _LOCAL_STORE_PATH)
+        except Exception as e:
+            logger.warning(f"[DB LOCAL] Could not save persistent store: {e}")
 
 _use_firestore = True
 
@@ -66,6 +101,9 @@ def _init_firebase():
     global _firebase_app, db
     if _firebase_app is not None:
         return
+
+    # Always ensure local persistent data is loaded
+    _load_local_store()
 
     cred_path = os.getenv('FIREBASE_CREDENTIALS_PATH', 'firebase-service-account.json')
     if not os.path.isabs(cred_path):
@@ -129,13 +167,13 @@ def _init_firebase():
             logger.info("[DB OK] Connected to Firebase Firestore and credentials verified.")
         except Exception as auth_err:
             logger.error("[DB ERROR] Firebase credentials verification failed: %s", auth_err)
-            logger.warning("[DB WARN] Falling back to in-memory database.")
+            logger.warning("[DB WARN] Falling back to persistent database fallback.")
             _disable_firestore()
             return
 
     except Exception as e:
         logger.error("[DB ERROR] Firebase initialization error: %s", e)
-        logger.warning("[DB WARN] Fallback to in-memory database active.")
+        logger.warning("[DB WARN] Fallback to persistent database active.")
         _disable_firestore()
 
 def verify_database_health() -> dict:
@@ -202,6 +240,7 @@ class User:
                 _MEMORY_STORE["users"][self.id].update(doc)
             elif self.uid in _MEMORY_STORE["users"]:
                 _MEMORY_STORE["users"][self.uid].update(doc)
+            _save_local_store()
 
         if _is_firestore_enabled():
             try:
@@ -211,10 +250,10 @@ class User:
 
     @staticmethod
     def get_by_email(email: str) -> "User | None":
-        email = email.lower().strip()
+        email_clean = (email or "").lower().strip()
         if _is_firestore_enabled():
             try:
-                results = list(db.collection("users").where("email", "==", email).limit(1).stream(timeout=FIRESTORE_TIMEOUT))
+                results = list(db.collection("users").where("email", "==", email_clean).limit(1).stream(timeout=FIRESTORE_TIMEOUT))
                 for doc in results:
                     d = doc.to_dict()
                     return User(
@@ -227,12 +266,12 @@ class User:
             except Exception as e:
                 logger.warning(f"[DB WARN] Firestore error on get_by_email: {e}. Falling back to in-memory store.")
 
-        # In-memory search with thread lock
+        # In-memory / persistent disk search with thread lock
         with _store_lock:
             users_list = list(_MEMORY_STORE["users"].values())
 
         for u in users_list:
-            if u.get("email") == email:
+            if (u.get("email") or "").lower().strip() == email_clean:
                 return User(
                     id=u.get("id"), uid=u.get("uid") or u.get("id"),
                     name=u.get("name"), email=u.get("email"),
@@ -294,6 +333,7 @@ class User:
         }
         with _store_lock:
             _MEMORY_STORE["users"][user_id] = doc
+            _save_local_store()
 
         if _is_firestore_enabled():
             try:
@@ -349,6 +389,7 @@ class Upload:
         }
         with _store_lock:
             _MEMORY_STORE["uploads"][upload_id] = doc
+            _save_local_store()
 
         if _is_firestore_enabled():
             try:
@@ -404,6 +445,7 @@ class Report:
         }
         with _store_lock:
             _MEMORY_STORE["reports"][report_id] = doc
+            _save_local_store()
 
         if _is_firestore_enabled():
             try:
@@ -514,6 +556,7 @@ class PresentationSession:
         }
         with _store_lock:
             _MEMORY_STORE["presentation_sessions"][session_id] = doc
+            _save_local_store()
 
         if _is_firestore_enabled():
             try:
@@ -568,6 +611,7 @@ class PresentationSession:
                     self.metrics[key].append(value)
             if self.id in _MEMORY_STORE["presentation_sessions"]:
                 _MEMORY_STORE["presentation_sessions"][self.id]["metrics"] = self.metrics
+                _save_local_store()
 
         # AUDIT-07: Firestore write is dispatched on a background daemon thread to avoid
         # blocking the SocketIO event loop during high-frequency real-time streaming
@@ -590,6 +634,7 @@ class PresentationSession:
                 self.metrics[key] = self.metrics.get(key, 0) + val
             if self.id in _MEMORY_STORE["presentation_sessions"]:
                 _MEMORY_STORE["presentation_sessions"][self.id]["metrics"] = self.metrics
+                _save_local_store()
 
         # AUDIT-07: Firestore increment also runs on a background thread to prevent socket stall
         if _is_firestore_enabled():
@@ -611,6 +656,7 @@ class PresentationSession:
             if self.id in _MEMORY_STORE["presentation_sessions"]:
                 _MEMORY_STORE["presentation_sessions"][self.id]["status"] = new_status
                 _MEMORY_STORE["presentation_sessions"][self.id]["ended_at"] = now
+                _save_local_store()
 
         if _is_firestore_enabled():
             try:
@@ -662,6 +708,7 @@ class HistoricalReport:
         }
         with _store_lock:
             _MEMORY_STORE["historical_reports"][report_id] = doc
+            _save_local_store()
 
         if _is_firestore_enabled():
             try:
