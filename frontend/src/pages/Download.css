@@ -39,7 +39,7 @@
 
 .download-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 2rem;
   margin-bottom: 3.5rem;
 }
@@ -115,6 +115,7 @@
   font-size: 1rem;
   text-decoration: none;
   transition: background 0.2s ease, transform 0.15s ease;
+  min-height: 48px;
 }
 
 .download-btn-win {
@@ -160,7 +161,7 @@
 
 .notes-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 1.5rem;
 }
 
@@ -174,4 +175,42 @@
   font-size: 0.9rem;
   color: #94a3b8;
   line-height: 1.5;
+}
+
+/* Responsive Media Queries */
+@media (max-width: 768px) {
+  .download-page {
+    padding: 1.5rem 1rem;
+  }
+
+  .download-header {
+    margin-bottom: 2rem;
+  }
+
+  .download-header h1 {
+    font-size: 2rem;
+  }
+
+  .download-subtitle {
+    font-size: 1rem;
+  }
+
+  .download-grid {
+    grid-template-columns: 1fr;
+    gap: 1.25rem;
+    margin-bottom: 2rem;
+  }
+
+  .download-card {
+    padding: 1.5rem;
+  }
+
+  .download-notes-card {
+    padding: 1.5rem;
+  }
+
+  .notes-grid {
+    grid-template-columns: 1fr;
+    gap: 1.2rem;
+  }
 }

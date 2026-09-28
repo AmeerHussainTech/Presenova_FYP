@@ -1,170 +1,165 @@
 /**
- * Layout Styles
- * Clean, glassmorphic top navigation bar and premium layout
+ * Presenova Shell & Layout Styles
+ * Minimalist, aesthetic, clean, and fully mobile-responsive
  */
 
 .layout {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  min-height: 100dvh;
+  background-color: var(--bg);
+  width: 100%;
 }
 
-/* Glassmorphic Navbar Styles */
+/* Minimalist Top Navbar */
 .navbar {
-  background: rgba(8, 11, 17, 0.75);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(8, 11, 17, 0.82);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
   z-index: 1000;
-  padding: 0;
-  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+  width: 100%;
+}
+
+:root.light-theme .navbar {
+  background: rgba(255, 255, 255, 0.88);
 }
 
 .navbar-container {
-  max-width: 1280px;
+  max-width: 1240px;
   margin: 0 auto;
-  /* FIX: was `display:flex; justify-content:space-between` with only two
-     children (logo, nav-links) — the logout button and username lived
-     inside the same nav-links <ul> as its last <li>, so the whole links+user
-     block was one flex item that got shoved flush to the right, leaving a
-     lopsided gap after the logo instead of the links being centered. Now
-     the markup has three real sections (logo / nav-links / actions) laid
-     out on a grid so the center column is genuinely centered against the
-     full bar width, independent of how wide the outer two columns are. */
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 1.1rem 1.5rem;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1.5rem;
   width: 100%;
 }
 
 .navbar-logo {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  font-size: 1.2rem;
-  font-weight: 800;
-  background: linear-gradient(135deg, #06b6d4 0%, #8b5cf6 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  text-decoration: none;
-  font-family: 'Outfit', sans-serif;
-  letter-spacing: -0.02em;
+  gap: 0.5rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text);
+  font-family: var(--font-heading);
+  letter-spacing: -0.015em;
   white-space: nowrap;
 }
 
-.logo-icon {
-  font-size: 1.6rem;
-  -webkit-text-fill-color: initial;
+.logo-badge {
+  font-size: 1.1rem;
+  color: var(--primary);
 }
 
-/* Nav Links Styles */
+/* Nav Links - Desktop Pill Bar */
 .nav-links {
   display: flex;
   list-style: none;
-  gap: 0.15rem;
+  gap: 0.25rem;
   align-items: center;
   justify-content: center;
-  /* FIX: keep the whole bar on a single row at all desktop widths — never
-     wrap to a second line. flex-wrap stays nowrap and, if the viewport is
-     ever too narrow for every item at minimum size, the row scrolls
-     horizontally instead of breaking (scrollbar hidden for a clean look). */
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  min-width: 0;
-}
-
-.nav-links::-webkit-scrollbar {
-  display: none;
+  margin: 0;
+  padding: 0;
 }
 
 .nav-item {
   position: relative;
-  flex: 0 0 auto;
 }
 
 .nav-link {
-  color: #94a3b8; /* Slate 400 */
-  text-decoration: none;
-  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-size: 0.82rem;
   font-weight: 600;
-  padding: 0.45rem 0.6rem;
-  border-radius: 99px;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  display: flex;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius-full);
+  transition: var(--transition-fast);
+  display: inline-flex;
   align-items: center;
   white-space: nowrap;
 }
 
 .nav-link:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  background: var(--surface-subtle);
 }
 
-/* Highlighted active route when navigated */
 .nav-link.active {
-  color: #ffffff;
-  background: rgba(139, 92, 246, 0.2); /* Indigo-violet translucent fill */
-  border: 1px solid rgba(139, 92, 246, 0.3);
-  box-shadow: 0 0 15px rgba(139, 92, 246, 0.1);
+  color: var(--text);
+  background: var(--primary-light);
+  border: 1px solid rgba(139, 92, 246, 0.25);
 }
 
-/* Main Content Area Styling */
-.main-content {
-  flex: 1;
-  max-width: 1280px;
-  width: 100%;
-  margin: 2.5rem auto;
-  padding: 0 2rem;
-  animation: fadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-/* Premium Slate Footer */
-.footer {
-  background-color: #05080c; /* Blackish Slate */
-  color: #64748b; /* Muted Slate */
-  text-align: center;
-  padding: 2.5rem;
-  margin-top: auto;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.footer p {
-  font-size: 0.9rem;
-  font-weight: 500;
-}
-
-/* Responsive Media Queries */
-.desktop-only {
+/* Navbar Actions Area */
+.navbar-actions {
   display: flex;
+  align-items: center;
+  gap: 0.65rem;
 }
 
+.user-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-full);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: var(--transition-fast);
+}
+
+.user-name:hover {
+  border-color: var(--primary);
+  color: var(--text);
+}
+
+.logout-btn {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  white-space: nowrap;
+}
+
+.logout-btn:hover {
+  background: var(--danger-light);
+  color: var(--danger);
+  border-color: rgba(244, 63, 94, 0.3);
+}
+
+/* Hamburger Button */
 .hamburger-btn {
   display: none;
   flex-direction: column;
   justify-content: space-around;
-  width: 32px;
-  height: 32px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  padding: 6px;
+  width: 36px;
+  height: 36px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 7px;
   cursor: pointer;
-  transition: all 0.3s ease;
-  z-index: 1001;
+  transition: var(--transition-fast);
 }
 
 .hamburger-line {
   width: 100%;
   height: 2px;
-  background-color: #f8fafc;
-  border-radius: 2px;
-  transition: all 0.3s ease;
+  background-color: var(--text);
+  border-radius: 1px;
+  transition: var(--transition-fast);
 }
 
 .hamburger-btn.active .hamburger-line:nth-child(1) {
@@ -182,31 +177,28 @@
 /* Mobile Drawer Overlay */
 .mobile-drawer-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   z-index: 9999;
   display: flex;
   justify-content: flex-end;
-  animation: fadeIn 0.25s ease-out;
+  animation: fadeIn 0.15s ease-out;
 }
 
 .mobile-drawer-content {
-  width: 82%;
-  max-width: 340px;
-  height: 100vh;
-  background: rgba(13, 17, 26, 0.98);
-  border-left: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 1.5rem;
+  width: 85%;
+  max-width: 320px;
+  height: 100dvh;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  padding: 1.25rem;
   display: flex;
   flex-direction: column;
-  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-lg);
   overflow-y: auto;
-  animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: slideInRight 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes slideInRight {
@@ -218,38 +210,31 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  margin-bottom: 1.2rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1rem;
 }
 
 .mobile-user-info {
-  font-size: 0.85rem;
-  color: #94a3b8;
+  font-size: 0.82rem;
+  color: var(--text-muted);
 }
 
 .mobile-user-info strong {
-  color: #f8fafc;
+  color: var(--text);
 }
 
 .mobile-close-btn {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #94a3b8;
-  font-size: 1rem;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.mobile-close-btn:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.12);
 }
 
 .mobile-nav-links {
@@ -258,55 +243,78 @@
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.35rem;
   flex: 1;
 }
 
 .mobile-nav-link {
   display: flex;
   align-items: center;
-  padding: 0.85rem 1rem;
-  border-radius: 12px;
-  color: #cbd5e1;
-  text-decoration: none;
-  font-size: 0.95rem;
+  padding: 0.75rem 0.95rem;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
   font-weight: 600;
-  transition: all 0.2s ease;
-  background: rgba(255, 255, 255, 0.02);
+  transition: var(--transition-fast);
+  background: transparent;
   border: 1px solid transparent;
 }
 
 .mobile-nav-link:hover,
 .mobile-nav-link.active {
-  color: #ffffff;
-  background: rgba(139, 92, 246, 0.18);
-  border-color: rgba(139, 92, 246, 0.4);
-  box-shadow: 0 0 15px rgba(139, 92, 246, 0.15);
+  color: var(--text);
+  background: var(--primary-light);
+  border-color: rgba(139, 92, 246, 0.25);
 }
 
 .mobile-drawer-footer {
-  margin-top: 1.5rem;
-  padding-top: 1rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
 }
 
 .mobile-logout-btn {
   width: 100%;
-  padding: 0.85rem;
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  color: white;
-  border: none;
-  border-radius: 12px;
-  font-weight: 700;
-  font-size: 0.95rem;
+  padding: 0.75rem;
+  background: var(--danger-light);
+  color: var(--danger);
+  border: 1px solid rgba(244, 63, 94, 0.25);
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  font-size: 0.9rem;
   cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+  transition: var(--transition-fast);
 }
 
 .mobile-logout-btn:hover {
-  background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
-  transform: translateY(-1px);
+  background: var(--danger);
+  color: #ffffff;
+}
+
+/* Main Content Area */
+.main-content {
+  flex: 1;
+  max-width: 1240px;
+  width: 100%;
+  margin: 1.5rem auto;
+  padding: 0 1.5rem;
+  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Minimalist Footer */
+.footer {
+  background-color: transparent;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 1.75rem 1rem;
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  font-size: 0.82rem;
+}
+
+/* Responsive Media Queries */
+.desktop-only {
+  display: flex;
 }
 
 @media (max-width: 900px) {
@@ -319,129 +327,42 @@
   }
 
   .navbar-container {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.85rem 1.2rem;
+    padding: 0.65rem 1rem;
   }
 
-  .navbar-actions {
-    border-left: none;
-    padding-left: 0;
-    gap: 0.75rem;
+  .main-content {
+    margin: 1rem auto;
+    padding: 0 0.85rem;
   }
 
   .user-name {
     max-width: 90px;
     font-size: 0.75rem;
-    padding: 0.25rem 0.5rem;
-  }
-
-  .main-content {
-    margin: 1rem auto;
-    padding: 0 0.8rem;
-  }
-
-  .footer {
-    padding: 1.5rem 1rem;
-    font-size: 0.8rem;
   }
 }
 
-/* User Info and Logout in navbar (right-hand grid column) */
-.navbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding-left: 0.6rem;
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
-  flex: 0 0 auto;
-}
-
-.user-name {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: #f8fafc;
-  background: rgba(255, 255, 255, 0.04);
-  padding: 0.35rem 0.65rem;
-  border-radius: 99px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  max-width: 110px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-  display: inline-block;
-  text-align: center;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.user-name:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(139, 92, 246, 0.4);
-  color: #ffffff;
-  box-shadow: 0 0 15px rgba(139, 92, 246, 0.25);
-  transform: translateY(-1px);
-}
-
-/* Username Light Theme overrides */
-:root.light-theme .user-name {
-  color: var(--text-main);
-  background: rgba(0, 0, 0, 0.03);
-  border-color: rgba(0, 0, 0, 0.08);
-}
-
-:root.light-theme .user-name:hover {
-  background: rgba(0, 0, 0, 0.06);
-  border-color: rgba(139, 92, 246, 0.4);
-  color: var(--text-main);
-  box-shadow: 0 0 15px rgba(139, 92, 246, 0.15);
-}
-
-.logout-btn {
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  color: white;
-  border: none;
-  font-size: 0.78rem;
-  font-weight: 700;
-  padding: 0.35rem 0.7rem;
-  border-radius: 99px;
-  cursor: pointer;
-  box-shadow: 0 2px 4px rgba(239, 68, 68, 0.2);
-  transition: all 0.2s ease;
-  white-space: nowrap;
-}
-
-.logout-btn:hover {
-  background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 6px rgba(239, 68, 68, 0.3);
-}
-
+/* Loading Screen */
 .app-loading {
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  min-height: 100vh;
-  background-color: #080b11;
-  color: #8b5cf6;
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  gap: 1.5rem;
+  min-height: 100dvh;
+  background-color: var(--bg);
+  color: var(--primary);
+  gap: 1.25rem;
 }
 
 .spinner {
-  width: 48px;
-  height: 48px;
-  border: 4px solid rgba(139, 92, 246, 0.1);
-  border-left-color: #8b5cf6;
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(139, 92, 246, 0.15);
+  border-left-color: var(--primary);
   border-radius: 50%;
-  animation: spin 1s linear infinite;
+  animation: spin 0.8s linear infinite;
 }
 
 @keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
 
