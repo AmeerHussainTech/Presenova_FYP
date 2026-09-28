@@ -15,6 +15,8 @@ import { AuthProvider } from './context/AuthContext';
 import Layout from './components/Layout';
 import ProtectedRoute from './components/ProtectedRoute';
 import ErrorBoundary from './components/ErrorBoundary';
+import SplashScreen from './components/SplashScreen';
+import Landing from './pages/Landing';
 import DocumentAnalyzer from './pages/DocumentAnalyzer';
 import SpeechAnalyzer from './pages/SpeechAnalyzer';
 import PracticeMode from './pages/PracticeMode';
@@ -30,21 +32,20 @@ const App: React.FC = () => {
   return (
     <ErrorBoundary>
       <AuthProvider>
+        <SplashScreen />
         <Router>
           <Routes>
 
-            {/* Public Login Route */}
+            {/* Public Landing & Login Routes */}
+            <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Login />} />
 
-            {/* Protected Routes */}
+            {/* Protected Application Routes */}
             <Route element={
               <ProtectedRoute>
                 <Layout />
               </ProtectedRoute>
             }>
-
-              {/* Default Route */}
-              <Route path="/" element={<Navigate to="/analytics" replace />} />
 
               {/* Document Analyzer */}
               <Route path="/analyzer" element={<ErrorBoundary><DocumentAnalyzer /></ErrorBoundary>} />
@@ -73,13 +74,13 @@ const App: React.FC = () => {
               {/* Download App */}
               <Route path="/download" element={<ErrorBoundary><Download /></ErrorBoundary>} />
 
-              {/* Analytics */}
+              {/* Analytics Dashboard */}
               <Route path="/analytics" element={<ErrorBoundary><Analytics /></ErrorBoundary>} />
 
             </Route>
 
             {/* Catch-all Wildcard Route */}
-            <Route path="*" element={<Navigate to="/analytics" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
 
           </Routes>
         </Router>
