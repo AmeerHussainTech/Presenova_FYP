@@ -23,7 +23,10 @@ import {
 } from '../services/firebase';
 import { 
   signInWithPopup, 
-  signInWithRedirect 
+  signInWithRedirect,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile
 } from 'firebase/auth';
 import './Login.css';
 
@@ -71,11 +74,11 @@ const Login: React.FC = () => {
 
       // Save Flask JWT in AuthContext
       loginContext(response.user, response.access_token, response.refresh_token);
-      setMessage('Login successful! Redirecting to Dashboard...');
+      setMessage('Authentication successful! Redirecting to Dashboard...');
 
       setTimeout(() => {
         navigate('/analytics');
-      }, 1000);
+      }, 800);
     } catch (err: any) {
       console.error('Firebase token exchange failed:', err);
       const errMsg = err?.message || 'Server verification failed. Please try again.';
@@ -119,7 +122,7 @@ const Login: React.FC = () => {
   };
 
   /**
-   * Handle Email/Password Login
+   * Handle Email/Password Login (via Firebase Auth SDK with Backend Fallback)
    */
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,6 +137,40 @@ const Login: React.FC = () => {
     }
 
     try {
+      if (isFirebaseConfigured()) {
+        try {
+          const userCredential = await signInWithEmailAndPassword(auth, loginForm.email.trim(), loginForm.password);
+          if (userCredential?.user) {
+            await handleFirebaseTokenExchange(userCredential.user);
+            return;
+          }
+        } catch (fbErr: any) {
+          console.warn('Firebase email login attempt:', fbErr);
+          // If account was created locally or on Flask backend, check fallback
+          if (
+            fbErr?.code === 'auth/user-not-found' || 
+            fbErr?.code === 'auth/invalid-credential' || 
+            fbErr?.code === 'auth/wrong-password' ||
+            fbErr?.code === 'auth/operation-not-allowed'
+          ) {
+            try {
+              const response = await flaskLogin(loginForm.email.trim(), loginForm.password);
+              loginContext(response.user, response.access_token, response.refresh_token);
+              setMessage('Login successful! Redirecting to Dashboard...');
+              setTimeout(() => navigate('/analytics'), 800);
+              return;
+            } catch (flaskErr: any) {
+              setError(getFirebaseErrorMessage(fbErr));
+              return;
+            }
+          } else {
+            setError(getFirebaseErrorMessage(fbErr));
+            return;
+          }
+        }
+      }
+
+      // Direct Flask Login fallback
       const response = await flaskLogin(loginForm.email.trim(), loginForm.password);
       loginContext(response.user, response.access_token, response.refresh_token);
       setMessage('Login successful! Redirecting to Dashboard...');
@@ -147,7 +184,7 @@ const Login: React.FC = () => {
   };
 
   /**
-   * Handle Email/Password Registration
+   * Handle Email/Password Registration (via Firebase Auth SDK with Backend Fallback)
    */
   const handleEmailSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -174,6 +211,36 @@ const Login: React.FC = () => {
     }
 
     try {
+      if (isFirebaseConfigured()) {
+        try {
+          const userCredential = await createUserWithEmailAndPassword(auth, signupForm.email.trim(), signupForm.password);
+          if (userCredential?.user) {
+            if (signupForm.name.trim()) {
+              try {
+                await updateProfile(userCredential.user, { displayName: signupForm.name.trim() });
+              } catch (profErr) {
+                console.warn('Could not set displayName on Firebase user:', profErr);
+              }
+            }
+            await handleFirebaseTokenExchange(userCredential.user);
+            return;
+          }
+        } catch (fbErr: any) {
+          console.warn('Firebase email signup attempt failed:', fbErr);
+          if (fbErr?.code === 'auth/operation-not-allowed') {
+            const response = await flaskSignup(signupForm.name.trim(), signupForm.email.trim(), signupForm.password);
+            loginContext(response.user, response.access_token, response.refresh_token);
+            setMessage('Account created successfully! Redirecting to Dashboard...');
+            setTimeout(() => navigate('/analytics'), 800);
+            return;
+          } else {
+            setError(getFirebaseErrorMessage(fbErr));
+            return;
+          }
+        }
+      }
+
+      // Direct Flask Signup fallback
       const response = await flaskSignup(signupForm.name.trim(), signupForm.email.trim(), signupForm.password);
       loginContext(response.user, response.access_token, response.refresh_token);
       setMessage('Account created successfully! Redirecting to Dashboard...');
