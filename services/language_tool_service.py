@@ -34,8 +34,8 @@ LANGUAGETOOL_USERNAME = os.getenv('LANGUAGETOOL_USERNAME', '').strip()
 # Cloud API is always available — no Java needed
 _CLOUD_ENABLED = os.getenv('ENABLE_GRAMMAR_CHECK', '1').strip().lower() not in {'0', 'false', 'no', 'off'}
 
-# Request timeout (seconds) — reduced to 4s to prevent blocking HTTP endpoints
-_TIMEOUT = 4
+# Request timeout (seconds) — tight 1.5s timeout for ultra-fast response
+_TIMEOUT = 1.5
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -54,7 +54,7 @@ def check_grammar(text: str, language: str = 'en-US') -> list[dict]:
       }
 
     Returns an empty list if the API is disabled, text is too short,
-    or the request fails (graceful degradation).
+    or the request fails (graceful degradation in <1.5s).
     """
     if not _CLOUD_ENABLED:
         return []
@@ -64,7 +64,7 @@ def check_grammar(text: str, language: str = 'en-US') -> list[dict]:
 
     # ── Build request payload ─────────────────────────────────────────────────
     payload: dict = {
-        'text':     text,
+        'text':     text[:3000],  # Sample first 3000 chars for rapid analysis
         'language': language,
     }
 
@@ -73,31 +73,26 @@ def check_grammar(text: str, language: str = 'en-US') -> list[dict]:
         payload['apiKey']   = LANGUAGETOOL_API_KEY
         payload['username'] = LANGUAGETOOL_USERNAME
 
-    # ── Call LanguageTool Cloud API ───────────────────────────────────────────
+    # ── Call LanguageTool Cloud API with tight timeout ───────────────────────
     data = {}
-    for attempt in range(2):
-        try:
-            response = requests.post(
-                f'{LANGUAGETOOL_API_URL}/check',
-                data=payload,
-                timeout=_TIMEOUT,
-                headers={'Accept': 'application/json'}
-            )
-            response.raise_for_status()
+    try:
+        response = requests.post(
+            f'{LANGUAGETOOL_API_URL}/check',
+            data=payload,
+            timeout=_TIMEOUT,
+            headers={'Accept': 'application/json'}
+        )
+        if response.status_code == 200:
             data = response.json()
-            break
-        except requests.exceptions.Timeout:
-            if attempt == 0:
-                logger.info('[language_tool_service] LanguageTool API timeout, retrying immediately...')
-            else:
-                logger.warning('[language_tool_service] LanguageTool API timed out after 2 attempts. Skipping grammar pre-pass.')
-                return []
-        except requests.exceptions.ConnectionError:
-            logger.warning('[language_tool_service] LanguageTool API unreachable. Skipping grammar pre-pass.')
-            return []
-        except Exception as exc:
-            logger.warning(f'[language_tool_service] Grammar check failed: {exc}')
-            return []
+    except requests.exceptions.Timeout:
+        logger.info('[language_tool_service] LanguageTool API timeout (<1.5s). Continuing smoothly.')
+        return []
+    except requests.exceptions.ConnectionError:
+        logger.info('[language_tool_service] LanguageTool API unreachable. Continuing smoothly.')
+        return []
+    except Exception as exc:
+        logger.warning(f'[language_tool_service] Grammar check notice: {exc}')
+        return []
 
     # ── Parse response ────────────────────────────────────────────────────────
     matches = data.get('matches', [])

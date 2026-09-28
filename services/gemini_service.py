@@ -61,15 +61,15 @@ def _env_float(name: str, default: float) -> float:
 
 # ── Configuration ───────────────────────────────────────────────────────────
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '').strip()
-GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash').strip()
+GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-2.0-flash').strip()
 MODEL_CANDIDATES = [
     model for model in [
         GEMINI_MODEL,
-        *os.getenv('GEMINI_FALLBACK_MODELS', 'gemini-2.0-flash,gemini-1.5-flash').split(','),
+        *os.getenv('GEMINI_FALLBACK_MODELS', 'gemini-1.5-flash,gemini-1.5-pro').split(','),
     ] if model.strip()
 ]
-GEMINI_TIMEOUT_SECONDS = max(1.0, _env_float('GEMINI_TIMEOUT_SECONDS', 45.0))
-GEMINI_MAX_RETRIES = max(1, _env_int('GEMINI_MAX_RETRIES', 2))
+GEMINI_TIMEOUT_SECONDS = max(1.0, _env_float('GEMINI_TIMEOUT_SECONDS', 25.0))
+GEMINI_MAX_RETRIES = max(1, _env_int('GEMINI_MAX_RETRIES', 1))
 MAX_REWRITE_PROMPT_CHARS = max(1000, _env_int('GEMINI_MAX_REWRITE_PROMPT_CHARS', 100000))
 MAX_ANALYSIS_PROMPT_CHARS = max(1000, _env_int('GEMINI_MAX_ANALYSIS_PROMPT_CHARS', 120000))
 GEMINI_OFFLINE = _env_bool('PRESENTATION_REWRITER_OFFLINE', False)

@@ -324,11 +324,11 @@ const Login: React.FC = () => {
                 </div>
 
                 <div className="form-group">
-                  <label htmlFor="signup-password">Password</label>
+                  <label htmlFor="signup-password">Password (Min 8 characters)</label>
                   <input
                     id="signup-password"
                     type="password"
-                    placeholder="Min 6 characters"
+                    placeholder="At least 8 characters"
                     value={signupForm.password}
                     onChange={(e) => setSignupForm({ ...signupForm, password: e.target.value })}
                     disabled={isLoading}

@@ -296,7 +296,7 @@ def firebase_login():
         except Exception:
             pass
 
-        token_aud = unverified_claims.get('aud') or os.getenv('FIREBASE_PROJECT_ID', 'fyp-firebase-df1f6')
+        token_aud = unverified_claims.get('aud') or os.getenv('FIREBASE_PROJECT_ID', 'fyp-firebase-df1f6-cfc8e')
 
         try:
             import firebase_admin
@@ -322,13 +322,13 @@ def firebase_login():
                         except Exception as init_err:
                             logger.warning("Could not initialize target Firebase app for aud '%s': %s", token_aud, init_err)
 
-            # Verify with target app if available, or default app (with 60s clock skew tolerance for Render)
+            # Verify with target app if available, or default app (with 120s clock skew tolerance for Render)
             if target_app is not None:
                 decoded_token = firebase_auth.verify_id_token(
                     id_token,
                     app=target_app,
                     check_revoked=False,
-                    clock_skew_seconds=60
+                    clock_skew_seconds=120
                 )
             else:
                 if not firebase_admin._apps:
@@ -336,7 +336,7 @@ def firebase_login():
                 decoded_token = firebase_auth.verify_id_token(
                     id_token,
                     check_revoked=False,
-                    clock_skew_seconds=60
+                    clock_skew_seconds=120
                 )
         except getattr(firebase_auth, 'RevokedIdTokenError', Exception) as revoked_err:
             logger.warning("Revoked Firebase ID token: %s", revoked_err)

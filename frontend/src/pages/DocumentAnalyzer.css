@@ -487,16 +487,54 @@
 }
 
 @media (max-width: 768px) {
-  .step-container {
-    padding: 1.5rem;
+  .document-analyzer h1 {
+    font-size: 1.8rem;
   }
+
+  .subtitle {
+    font-size: 0.95rem;
+  }
+
+  .step-container {
+    padding: 1.2rem;
+    gap: 1.2rem;
+  }
+
+  .upload-box-wrapper {
+    padding: 1.5rem 1rem;
+  }
+
+  .report-sections-grid {
+    grid-template-columns: 1fr;
+    gap: 1.2rem;
+  }
+
+  .report-card {
+    padding: 1.2rem;
+  }
+
+  .feedback-widget {
+    padding: 1.2rem;
+  }
+
   .report-actions-header {
     flex-direction: column;
     align-items: stretch;
     gap: 1rem;
+    padding: 1rem;
   }
+
   .report-actions-buttons {
     flex-direction: column;
+  }
+
+  .report-actions-buttons button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .seven-cs-legend {
+    grid-template-columns: 1fr;
   }
 }
 

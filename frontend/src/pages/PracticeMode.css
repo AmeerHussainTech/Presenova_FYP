@@ -807,3 +807,28 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* ── Mobile Responsive Overrides ─────────────────────────────────────── */
+@media (max-width: 768px) {
+  .practice-mode-page {
+    padding: 0.5rem 0.2rem;
+  }
+
+  .practice-layout {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .chat-container {
+    height: 70vh;
+  }
+
+  .quick-prompts-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gemini-config-modal-card {
+    width: 95%;
+    padding: 1.2rem;
+  }
+}

@@ -42,7 +42,6 @@ const Analytics: React.FC = () => {
   // ===== STATE MANAGEMENT =====
   const [reports, setReports] = useState<ReportItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   
   // Dashboard navigation tabs: 'overview' (charts) vs 'history' (list of past reports)
   const [activeTab, setActiveTab] = useState<'overview' | 'history'>('overview');
@@ -70,19 +69,68 @@ const Analytics: React.FC = () => {
     const fetchHistory = async () => {
       try {
         const data = await getUserHistory();
-        setReports(data.reports);
+        if (data && Array.isArray(data.reports)) {
+          setReports(data.reports);
+          return;
+        }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load progress analytics');
+        console.warn('Could not fetch server history, loading local storage cache:', err);
       } finally {
+        // Fallback: check local storage history
+        try {
+          const localDocs = localStorage.getItem('document_analysis_history');
+          if (localDocs) {
+            const parsed = JSON.parse(localDocs);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              const mapped = parsed.map((item: any, idx: number) => ({
+                id: `local-${idx}`,
+                report_type: 'document_analysis',
+                report_json: item,
+                user_id: user?.id || 'local',
+                created_at: item.analysis_timestamp || new Date().toISOString(),
+              }));
+              setReports(mapped);
+            }
+          }
+        } catch (e) {
+          console.warn('Error reading local history:', e);
+        }
         setLoading(false);
       }
     };
 
     fetchHistory();
-  }, []);
+  }, [user]);
 
   const toggleTheme = () => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  };
+
+  // Helper: safely normalize report_json in case it's a string or missing properties
+  const getSafeReportJson = (r: ReportItem): any => {
+    let json = r.report_json;
+    if (typeof json === 'string') {
+      try {
+        json = JSON.parse(json);
+      } catch {
+        json = {};
+      }
+    }
+    return json || {};
+  };
+
+  const handleRefresh = async () => {
+    setLoading(true);
+    try {
+      const data = await getUserHistory();
+      if (data && Array.isArray(data.reports)) {
+        setReports(data.reports);
+      }
+    } catch (err) {
+      console.warn('Manual refresh failed, keeping cached data:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleLogout = () => {
@@ -95,14 +143,6 @@ const Analytics: React.FC = () => {
       <div className="analytics-loading">
         <div className="spinner"></div>
         <p>Loading your dashboard...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="analytics-error">
-        <p>Error loading dashboard: {error}</p>
       </div>
     );
   }
@@ -133,15 +173,15 @@ const Analytics: React.FC = () => {
       day: 'numeric',
     });
     
-    // Check if score exists in document or speech report json
+    const rJson = getSafeReportJson(r);
     const isDoc = r.report_type === 'document_analysis' || r.report_type === 'presentation_analysis' || r.report_type === 'presentation_rewrite';
     const score = isDoc
-      ? r.report_json.overall_score || 75
-      : r.report_json.overall_score || r.report_json.clarity_score || 70;
+      ? rJson.overall_score || 75
+      : rJson.overall_score || rJson.clarity_score || 70;
 
     return {
       date: dateStr,
-      score: score || 0,
+      score: typeof score === 'number' ? score : 75,
       type: isDoc ? 'Presentation / Document' : 'Speech',
     };
   });
@@ -153,23 +193,24 @@ const Analytics: React.FC = () => {
       day: 'numeric',
     });
     
-    // Support speech analyzer or live coach metrics formats
-    const wpm = r.report_json.speech_speed_wpm || r.report_json.session_metrics?.avg_wpm || 0;
-    const fillers = r.report_json.filler_words_count || r.report_json.session_metrics?.total_fillers || 0;
+    const rJson = getSafeReportJson(r);
+    const wpm = rJson.speech_speed_wpm || rJson.session_metrics?.avg_wpm || 0;
+    const fillers = rJson.filler_words_count || rJson.session_metrics?.total_fillers || 0;
 
     return {
       date: dateStr,
-      wpm: wpm,
-      fillerWords: fillers,
+      wpm: typeof wpm === 'number' ? wpm : 0,
+      fillerWords: typeof fillers === 'number' ? fillers : 0,
     };
   });
 
   // 3. Category Average Scores (for latest document)
   const latestDoc = documentReports[documentReports.length - 1];
-  const categoryScoresData = latestDoc && latestDoc.report_json.category_scores
-    ? Object.entries(latestDoc.report_json.category_scores).map(([category, score]) => ({
+  const latestDocJson = latestDoc ? getSafeReportJson(latestDoc) : null;
+  const categoryScoresData = latestDocJson && latestDocJson.category_scores && typeof latestDocJson.category_scores === 'object'
+    ? Object.entries(latestDocJson.category_scores).map(([category, score]) => ({
         category: category.replace(/_/g, ' '),
-        score: score as number,
+        score: typeof score === 'number' ? score : 0,
       }))
     : [
         { category: 'Structure', score: 0 },
@@ -184,20 +225,22 @@ const Analytics: React.FC = () => {
   const totalSpeeches = speechReports.length;
 
   const avgDocScore = totalDocs > 0
-    ? Math.round(documentReports.reduce((sum, r) => sum + (r.report_json.overall_score || 0), 0) / totalDocs)
+    ? Math.round(documentReports.reduce((sum, r) => sum + (getSafeReportJson(r).overall_score || 0), 0) / totalDocs)
     : 0;
 
   const avgSpeechScore = totalSpeeches > 0
     ? Math.round(speechReports.reduce((sum, r) => {
-        const score = r.report_json.overall_score || r.report_json.clarity_score || 70;
-        return sum + score;
+        const rJson = getSafeReportJson(r);
+        const score = rJson.overall_score || rJson.clarity_score || 70;
+        return sum + (typeof score === 'number' ? score : 70);
       }, 0) / totalSpeeches)
     : 0;
 
   const avgWpm = totalSpeeches > 0
     ? Math.round(speechReports.reduce((sum, r) => {
-        const wpm = r.report_json.speech_speed_wpm || r.report_json.session_metrics?.avg_wpm || 0;
-        return sum + wpm;
+        const rJson = getSafeReportJson(r);
+        const wpm = rJson.speech_speed_wpm || rJson.session_metrics?.avg_wpm || 0;
+        return sum + (typeof wpm === 'number' ? wpm : 0);
       }, 0) / totalSpeeches)
     : 0;
 
@@ -212,6 +255,13 @@ const Analytics: React.FC = () => {
         </div>
         
         <div className="header-actions">
+          {/* Refresh / Retry Button */}
+          <button onClick={handleRefresh} className="theme-toggle-btn" title="Refresh Dashboard Data">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+            </svg>
+          </button>
+
           {/* Theme Switcher Toggle */}
           <button onClick={toggleTheme} className="theme-toggle-btn" title="Toggle Light/Dark Theme">
             {theme === 'dark' ? (
@@ -551,132 +601,136 @@ const Analytics: React.FC = () => {
       )}
 
       {/* OVERLAY DETAIL MODAL FOR HISTORICAL RUNS */}
-      {activeReport && (
-        <div className="report-modal-overlay" onClick={() => setActiveReport(null)}>
-          <div className="report-modal-content fadeIn" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <span className={`modal-badge ${activeReport.report_type === 'document_analysis' ? 'badge-doc' : activeReport.report_type === 'live_coaching' ? 'badge-live' : 'badge-speech'}`}>
-                {activeReport.report_type === 'document_analysis' ? 'Document Analysis' : activeReport.report_type === 'live_coaching' ? 'Live Practice' : 'Speech Practice'}
-              </span>
-              <button className="modal-close-btn" onClick={() => setActiveReport(null)}>✕</button>
-            </div>
-            
-            <h2 className="modal-title">{activeReport.report_json.document_name || activeReport.report_json.topic || 'Presentation Session'}</h2>
-            <p className="modal-date">Analyzed on: {new Date(activeReport.created_at).toLocaleString()}</p>
-            
-            <div className="modal-score-section">
-              <div className="modal-score-circle">
-                <span className="score-num">
-                  {activeReport.report_type === 'document_analysis' 
-                    ? activeReport.report_json.overall_score 
-                    : activeReport.report_json.overall_score || activeReport.report_json.clarity_score || 70}
+      {activeReport && (() => {
+        const activeJson = getSafeReportJson(activeReport);
+        const modalScore = activeReport.report_type === 'document_analysis'
+          ? activeJson.overall_score || 75
+          : activeJson.overall_score || activeJson.clarity_score || 70;
+        const recommendations = Array.isArray(activeJson.recommendations) ? activeJson.recommendations : [];
+
+        return (
+          <div className="report-modal-overlay" onClick={() => setActiveReport(null)}>
+            <div className="report-modal-content fadeIn" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <span className={`modal-badge ${activeReport.report_type === 'document_analysis' ? 'badge-doc' : activeReport.report_type === 'live_coaching' ? 'badge-live' : 'badge-speech'}`}>
+                  {activeReport.report_type === 'document_analysis' ? 'Document Analysis' : activeReport.report_type === 'live_coaching' ? 'Live Practice' : 'Speech Practice'}
                 </span>
-                <span className="score-lbl">Score</span>
+                <button className="modal-close-btn" onClick={() => setActiveReport(null)}>✕</button>
               </div>
-              <div className="modal-feedback-box">
-                <h3>Detailed Feedback Summary</h3>
-                <p>
-                  {activeReport.report_json.detailed_feedback || 
-                   (activeReport.report_json.actionable_feedback && activeReport.report_json.actionable_feedback.join('. ')) || 
-                   'Detailed analysis successfully compiled for this practice session. Review category scores and suggestions below.'}
-                </p>
+              
+              <h2 className="modal-title">{activeJson.document_name || activeJson.presentation_title || activeJson.topic || 'Presentation Session'}</h2>
+              <p className="modal-date">Analyzed on: {new Date(activeReport.created_at).toLocaleString()}</p>
+              
+              <div className="modal-score-section">
+                <div className="modal-score-circle">
+                  <span className="score-num">{modalScore}</span>
+                  <span className="score-lbl">Score</span>
+                </div>
+                <div className="modal-feedback-box">
+                  <h3>Detailed Feedback Summary</h3>
+                  <p>
+                    {activeJson.detailed_feedback || 
+                     (Array.isArray(activeJson.actionable_feedback) && activeJson.actionable_feedback.join('. ')) || 
+                     'Detailed analysis successfully compiled for this practice session. Review category scores and suggestions below.'}
+                  </p>
+                </div>
               </div>
-            </div>
-            
-            {/* Category breakdown rendering */}
-            {activeReport.report_json.category_scores && (
-              <div className="modal-scores-grid">
-                <h3>Category Score Breakdown</h3>
-                <div className="modal-bar-list">
-                  {Object.entries(activeReport.report_json.category_scores).map(([cat, val]) => {
-                    const numVal = typeof val === 'number' ? val : 0;
-                    return (
-                      <div key={cat} className="bar-row">
-                        <span className="bar-label">{cat.replace(/_/g, ' ')}</span>
-                        <div className="bar-bg">
-                          <div className="bar-fill" style={{ width: `${numVal}%`, background: numVal >= 80 ? '#10b981' : numVal >= 60 ? '#fbbf24' : '#ef4444' }}></div>
+              
+              {/* Category breakdown rendering */}
+              {activeJson.category_scores && typeof activeJson.category_scores === 'object' && (
+                <div className="modal-scores-grid">
+                  <h3>Category Score Breakdown</h3>
+                  <div className="modal-bar-list">
+                    {Object.entries(activeJson.category_scores).map(([cat, val]) => {
+                      const numVal = typeof val === 'number' ? val : 0;
+                      return (
+                        <div key={cat} className="bar-row">
+                          <span className="bar-label">{cat.replace(/_/g, ' ')}</span>
+                          <div className="bar-bg">
+                            <div className="bar-fill" style={{ width: `${numVal}%`, background: numVal >= 80 ? '#10b981' : numVal >= 60 ? '#fbbf24' : '#ef4444' }}></div>
+                          </div>
+                          <span className="bar-value">{numVal}/100</span>
                         </div>
-                        <span className="bar-value">{numVal}/100</span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              
+              {/* Telemetry data for audio/speech recordings */}
+              {(activeJson.speech_speed_wpm || activeJson.session_metrics) && (
+                <div className="speech-telemetry-box">
+                  <h3>Speech Delivery Metrics</h3>
+                  <div className="telemetry-grid">
+                    <div className="telemetry-card">
+                      <span className="tel-title">Speaking Pace</span>
+                      <span className="tel-val">
+                        {activeJson.speech_speed_wpm || activeJson.session_metrics?.avg_wpm || 0} WPM
+                      </span>
+                    </div>
+                    <div className="telemetry-card">
+                      <span className="tel-title">Filler Word Occurrences</span>
+                      <span className="tel-val">
+                        {activeJson.filler_words_count !== undefined 
+                          ? activeJson.filler_words_count 
+                          : activeJson.session_metrics?.total_fillers || 0}
+                      </span>
+                    </div>
+                    <div className="telemetry-card">
+                      <span className="tel-title">Clarity Metric</span>
+                      <span className="tel-val">
+                        {activeJson.clarity_score || activeJson.overall_score || 70}/100
+                      </span>
+                    </div>
+                    {activeJson.session_metrics?.avg_eye_contact !== undefined && (
+                      <div className="telemetry-card">
+                        <span className="tel-title">Eye Contact Accuracy</span>
+                        <span className="tel-val">
+                          {activeJson.session_metrics?.avg_eye_contact}%
+                        </span>
                       </div>
-                    );
-                  })}
+                    )}
+                    {activeJson.session_metrics?.avg_posture !== undefined && (
+                      <div className="telemetry-card">
+                        <span className="tel-title">Body Posture Accuracy</span>
+                        <span className="tel-val">
+                          {activeJson.session_metrics?.avg_posture}%
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
-            
-            {/* Telemetry data for audio/speech recordings */}
-            {(activeReport.report_json.speech_speed_wpm || activeReport.report_json.session_metrics) && (
-              <div className="speech-telemetry-box">
-                <h3>Speech Delivery Metrics</h3>
-                <div className="telemetry-grid">
-                  <div className="telemetry-card">
-                    <span className="tel-title">Speaking Pace</span>
-                    <span className="tel-val">
-                      {activeReport.report_json.speech_speed_wpm || activeReport.report_json.session_metrics?.avg_wpm || 0} WPM
-                    </span>
-                  </div>
-                  <div className="telemetry-card">
-                    <span className="tel-title">Filler Word Occurrences</span>
-                    <span className="tel-val">
-                      {activeReport.report_json.filler_words_count !== undefined 
-                        ? activeReport.report_json.filler_words_count 
-                        : activeReport.report_json.session_metrics?.total_fillers || 0}
-                    </span>
-                  </div>
-                  <div className="telemetry-card">
-                    <span className="tel-title">Clarity Metric</span>
-                    <span className="tel-val">
-                      {activeReport.report_json.clarity_score || activeReport.report_json.overall_score || 70}/100
-                    </span>
-                  </div>
-                  {activeReport.report_json.session_metrics?.avg_eye_contact !== undefined && (
-                    <div className="telemetry-card">
-                      <span className="tel-title">Eye Contact Accuracy</span>
-                      <span className="tel-val">
-                        {activeReport.report_json.session_metrics?.avg_eye_contact}%
-                      </span>
-                    </div>
-                  )}
-                  {activeReport.report_json.session_metrics?.avg_posture !== undefined && (
-                    <div className="telemetry-card">
-                      <span className="tel-title">Body Posture Accuracy</span>
-                      <span className="tel-val">
-                        {activeReport.report_json.session_metrics?.avg_posture}%
-                      </span>
-                    </div>
-                  )}
+              )}
+              
+              {/* Recommendations list */}
+              {recommendations.length > 0 && (
+                <div className="modal-recommendations">
+                  <h3>Key Recommendations</h3>
+                  <ul className="modal-rec-list">
+                    {recommendations.map((rec: string, index: number) => (
+                      <li key={index}>{rec}</li>
+                    ))}
+                  </ul>
                 </div>
+              )}
+              
+              {/* Professional Rewrites */}
+              {activeJson.improved_text && (
+                <div className="modal-rewrite">
+                  <h3>AI Professional Rewrite Suggestion</h3>
+                  <p className="rewrite-text">{activeJson.improved_text}</p>
+                </div>
+              )}
+              
+              <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'flex-end' }}>
+                <button className="modal-done-btn" onClick={() => setActiveReport(null)}>
+                  Close Details
+                </button>
               </div>
-            )}
-            
-            {/* Recommendations list */}
-            {activeReport.report_json.recommendations && activeReport.report_json.recommendations.length > 0 && (
-              <div className="modal-recommendations">
-                <h3>Key Recommendations</h3>
-                <ul className="modal-rec-list">
-                  {activeReport.report_json.recommendations.map((rec: string, index: number) => (
-                    <li key={index}>{rec}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            
-            {/* Professional Rewrites */}
-            {activeReport.report_json.improved_text && (
-              <div className="modal-rewrite">
-                <h3>AI Professional Rewrite Suggestion</h3>
-                <p className="rewrite-text">{activeReport.report_json.improved_text}</p>
-              </div>
-            )}
-            
-            <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'flex-end' }}>
-              <button className="modal-done-btn" onClick={() => setActiveReport(null)}>
-                Close Details
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };

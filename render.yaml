@@ -22,9 +22,9 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
-        value: "gemini-2.5-flash"
+        value: "gemini-2.0-flash"
       - key: GEMINI_FALLBACK_MODELS
-        value: "gemini-2.0-flash,gemini-1.5-flash"
+        value: "gemini-1.5-flash,gemini-1.5-pro"
       - key: SOCKETIO_ASYNC_MODE
         value: "threading"
       - key: GROQ_API_KEY

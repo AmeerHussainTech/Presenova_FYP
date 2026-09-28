@@ -1124,3 +1124,54 @@
   background: #334155;
   color: #f8fafc;
 }
+
+/* Responsive Media Queries */
+@media (max-width: 900px) {
+  .pg-outline-editor-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .pg-theme-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .pg-hero-title {
+    font-size: 1.8rem;
+  }
+
+  .pg-hero-subtitle {
+    font-size: 0.95rem;
+  }
+
+  .pg-wizard-progress {
+    gap: 0.5rem;
+  }
+
+  .pg-step-pill {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.75rem;
+  }
+
+  .pg-card {
+    padding: 1.2rem;
+  }
+
+  .pg-input-modes {
+    flex-direction: column;
+  }
+
+  .pg-counts-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .pg-themes-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pg-modal-card {
+    width: 95%;
+    padding: 1.5rem 1rem;
+  }
+}

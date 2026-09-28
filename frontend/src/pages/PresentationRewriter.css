@@ -1561,3 +1561,37 @@
   background: rgba(167, 139, 250, 0.4);
   flex-shrink: 0;
 }
+
+/* ── Mobile Responsive Overrides ─────────────────────────────────────── */
+@media (max-width: 768px) {
+  .pr-page {
+    padding: 1.2rem 0.8rem 2.5rem;
+  }
+
+  .pr-hero-title {
+    font-size: 1.8rem;
+  }
+
+  .pr-hero-subtitle {
+    font-size: 0.9rem;
+  }
+
+  .pr-layout {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .pr-card {
+    padding: 1.2rem;
+    border-radius: 14px;
+  }
+
+  .pr-dropzone {
+    padding: 1.5rem 1rem;
+    min-height: 140px;
+  }
+
+  .pr-stats-row {
+    grid-template-columns: 1fr;
+  }
+}

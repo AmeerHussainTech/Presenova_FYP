@@ -1114,6 +1114,20 @@
     max-width: 100%;
   }
 
+  .report-sections-grid {
+    grid-template-columns: 1fr;
+    gap: 1.2rem;
+  }
+
+  .seven-cs-content-split {
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .seven-cs-legend {
+    grid-template-columns: 1fr;
+  }
+
   .step-wizard-indicator {
     flex-direction: column;
     align-items: flex-start;

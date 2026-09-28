@@ -150,29 +150,32 @@ const DocumentAnalyzer: React.FC = () => {
   const handleDownloadReport = () => {
     if (!analysis) return;
 
+    const safeDocName = file?.name || analysis.document_name || 'document.pdf';
+    const catScores = analysis.category_scores || {} as any;
+
     // Map single-analysis data into the format expected by the PDF generator
     const categoryScores = [
-      { name: 'Structure', v1: analysis.category_scores.Structure || 0, v2: 0 },
-      { name: 'Clarity', v1: analysis.category_scores.Clarity || 0, v2: 0 },
-      { name: 'Persuasion', v1: analysis.category_scores.Persuasion || 0, v2: 0 },
-      { name: 'Content Quality', v1: analysis.category_scores.Content_Quality || 0, v2: 0 },
-      { name: 'Grammar & Syntax', v1: analysis.category_scores.Grammar_and_Syntax || 0, v2: 0 },
-      { name: 'Accuracy', v1: analysis.category_scores.Accuracy || 0, v2: 0 },
-      { name: 'Tone', v1: analysis.category_scores.Tone_Appropriateness || 0, v2: 0 },
-      { name: 'Audience Fit', v1: analysis.category_scores.Audience_Alignment || 0, v2: 0 },
+      { name: 'Structure', v1: catScores.Structure || 0, v2: 0 },
+      { name: 'Clarity', v1: catScores.Clarity || 0, v2: 0 },
+      { name: 'Persuasion', v1: catScores.Persuasion || 0, v2: 0 },
+      { name: 'Content Quality', v1: catScores.Content_Quality || 0, v2: 0 },
+      { name: 'Grammar & Syntax', v1: catScores.Grammar_and_Syntax || (analysis as any).grammar_score || 0, v2: 0 },
+      { name: 'Accuracy', v1: catScores.Accuracy || 0, v2: 0 },
+      { name: 'Tone', v1: catScores.Tone_Appropriateness || 0, v2: 0 },
+      { name: 'Audience Fit', v1: catScores.Audience_Alignment || 0, v2: 0 },
     ];
 
     downloadProgressReportPDF({
       title: 'Document Analysis Report',
-      documentName: file?.name || analysis.document_name || 'document.pdf',
-      v1Score: analysis.overall_score,
-      v2Score: analysis.overall_score,
+      documentName: safeDocName,
+      v1Score: analysis.overall_score || 75,
+      v2Score: analysis.overall_score || 75,
       gain: 0,
       categoryScores,
-      synthesis: analysis.detailed_feedback,
-      improvements: analysis.recommendations,
+      synthesis: analysis.detailed_feedback || 'Analysis complete.',
+      improvements: analysis.recommendations || [],
       remaining: [],
-    }, `Analysis_Report_${analysis.document_name.replace(/\.[^/.]+$/, "")}.pdf`);
+    }, `Analysis_Report_${safeDocName.replace(/\.[^/.]+$/, "")}.pdf`);
   };
 
   return (
