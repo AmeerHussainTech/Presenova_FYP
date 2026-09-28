@@ -4,7 +4,7 @@ services:
     runtime: python
     region: oregon
     plan: free
-    buildCommand: "pip install --upgrade pip && pip install -r requirements.txt && python -m spacy download en_core_web_sm"
+    buildCommand: "pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt && python -m spacy download en_core_web_sm"
     startCommand: "gunicorn -k gthread --threads 4 -w 1 --timeout 120 --bind 0.0.0.0:$PORT main:app"
     envVars:
       - key: PYTHON_VERSION
