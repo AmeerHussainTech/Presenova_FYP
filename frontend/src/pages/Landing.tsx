@@ -3,8 +3,8 @@
  * Minimalist, aesthetic, clean, calm, and fully mobile-responsive landing page for Presenova.
  */
 
-import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import './Landing.css';
 
@@ -16,19 +16,11 @@ interface FeatureItem {
 }
 
 const Landing: React.FC = () => {
-  const navigate = useNavigate();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [isLightTheme, setIsLightTheme] = useState<boolean>(() => {
     return document.documentElement.classList.contains('light-theme');
   });
-
-  // Redirect authenticated users to Dashboard
-  useEffect(() => {
-    if (!isLoading && isAuthenticated) {
-      navigate('/analytics', { replace: true });
-    }
-  }, [isAuthenticated, isLoading, navigate]);
 
   const toggleTheme = () => {
     const root = document.documentElement;
@@ -42,6 +34,9 @@ const Landing: React.FC = () => {
       localStorage.setItem('presenova_theme', 'light');
     }
   };
+
+  const authTarget = isAuthenticated ? '/analytics' : '/login';
+  const primaryCtaText = isAuthenticated ? 'Go to Dashboard' : 'Get Started Free';
 
   const featureList: FeatureItem[] = [
     {
@@ -160,6 +155,9 @@ const Landing: React.FC = () => {
               <li><a href="#features" className="landing-nav-link">Features</a></li>
               <li><a href="#how-it-works" className="landing-nav-link">How it Works</a></li>
               <li><a href="#highlights" className="landing-nav-link">Highlights</a></li>
+              {isAuthenticated && (
+                <li><Link to="/analytics" className="landing-nav-link" style={{ color: 'var(--primary)' }}>Dashboard</Link></li>
+              )}
             </ul>
           </nav>
 
@@ -189,8 +187,16 @@ const Landing: React.FC = () => {
               )}
             </button>
 
-            <Link to="/login" className="btn btn-ghost">Log In</Link>
-            <Link to="/login" className="btn btn-primary">Get Started</Link>
+            {isAuthenticated ? (
+              <Link to="/analytics" className="btn btn-primary">
+                Dashboard {user?.name ? `(${user.name.split(' ')[0]})` : ''}
+              </Link>
+            ) : (
+              <>
+                <Link to="/login" className="btn btn-ghost">Log In</Link>
+                <Link to="/login" className="btn btn-primary">Get Started</Link>
+              </>
+            )}
 
             <button
               className="landing-hamburger"
@@ -239,14 +245,24 @@ const Landing: React.FC = () => {
             >
               Highlights
             </a>
+            {isAuthenticated && (
+              <Link
+                to="/analytics"
+                className="landing-mobile-link"
+                style={{ color: 'var(--primary)' }}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Dashboard
+              </Link>
+            )}
           </div>
           <Link
-            to="/login"
+            to={authTarget}
             className="btn btn-primary"
             style={{ width: '100%', minHeight: '48px' }}
             onClick={() => setMobileMenuOpen(false)}
           >
-            Get Started Free
+            {primaryCtaText}
           </Link>
         </div>
       </header>
@@ -267,8 +283,8 @@ const Landing: React.FC = () => {
           </p>
 
           <div className="hero-cta-group">
-            <Link to="/login" className="btn btn-primary" style={{ padding: '0.85rem 2rem', fontSize: '1rem' }}>
-              Get Started Free
+            <Link to={authTarget} className="btn btn-primary" style={{ padding: '0.85rem 2rem', fontSize: '1rem' }}>
+              {primaryCtaText}
             </Link>
             <a href="#how-it-works" className="btn btn-secondary" style={{ padding: '0.85rem 1.8rem', fontSize: '1rem' }}>
               See How It Works
@@ -425,8 +441,8 @@ const Landing: React.FC = () => {
             <p className="cta-subtext">
               Join students, researchers, and professionals who master their communication skills with Presenova.
             </p>
-            <Link to="/login" className="btn btn-primary" style={{ padding: '0.9rem 2.5rem', fontSize: '1.05rem' }}>
-              Get Started Free
+            <Link to={authTarget} className="btn btn-primary" style={{ padding: '0.9rem 2.5rem', fontSize: '1.05rem' }}>
+              {primaryCtaText}
             </Link>
           </div>
         </section>
