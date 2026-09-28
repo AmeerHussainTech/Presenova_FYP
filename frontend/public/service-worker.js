@@ -1,8 +1,8 @@
 /* Presenova PWA Service Worker
- * Provides offline caching for static assets so the app works even with slow connections.
+ * Network-first for navigation/HTML requests, cache-first for hashed static assets.
  */
 
-const CACHE_NAME = 'presenova-v1';
+const CACHE_NAME = 'presenova-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -22,36 +22,55 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Activate: delete old caches
+// Activate: delete old caches immediately
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) =>
       Promise.all(
         cacheNames
           .filter((name) => name !== CACHE_NAME)
-          .map((name) => caches.delete(name))
+          .map((name) => {
+            console.log('[SW] Deleting stale cache:', name);
+            return caches.delete(name);
+          })
       )
     )
   );
   self.clients.claim();
 });
 
-// Fetch: network first for API calls, cache first for static assets
+// Fetch: network first for navigation and API, cache with network fallback for assets
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Bypass service worker entirely in development
+  // Bypass service worker in development
   if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
     return;
   }
 
-  // Always go network-first for API calls
+  // Network-only for API and Socket.IO
   if (url.pathname.startsWith('/api') || url.pathname.startsWith('/socket.io')) {
     event.respondWith(fetch(event.request));
     return;
   }
 
-  // Cache-first strategy for static files
+  // Network-first for HTML navigation requests to ensure latest version is always served
+  if (event.request.mode === 'navigate' || event.request.destination === 'document') {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const cloned = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, cloned));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request).then((cached) => cached || caches.match('/index.html')))
+    );
+    return;
+  }
+
+  // Cache-first with network fallback for hashed static assets (JS, CSS, images)
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
@@ -66,7 +85,6 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() => {
-          // Offline fallback: return cached index.html for navigation
           if (event.request.mode === 'navigate') {
             return caches.match('/index.html');
           }
