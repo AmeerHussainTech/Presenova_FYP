@@ -263,6 +263,71 @@ export const firebaseLogin = async (idToken: string): Promise<LoginResponse> => 
 };
 
 /**
+ * Forgot Password Request
+ * Requests a password reset token / email
+ */
+export interface ForgotPasswordResponse {
+  success: boolean;
+  status: string;
+  message: string;
+  dev_reset_token?: string;
+}
+
+export const forgotPassword = async (email: string): Promise<ForgotPasswordResponse> => {
+  try {
+    const response = await fetchWithColdStartRetry(`${API_BASE_URL}/auth/forgot-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.message || data.error || 'Failed to request password reset');
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error requesting password reset:', error);
+    throw error;
+  }
+};
+
+/**
+ * Reset Password
+ * Confirms new password using the reset token
+ */
+export interface ResetPasswordResponse {
+  success: boolean;
+  status: string;
+  message: string;
+}
+
+export const resetPassword = async (token: string, password: string): Promise<ResetPasswordResponse> => {
+  try {
+    const response = await fetchWithColdStartRetry(`${API_BASE_URL}/auth/reset-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ token, password }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.message || data.error || 'Failed to reset password');
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error resetting password:', error);
+    throw error;
+  }
+};
+
+/**
  * Get Current User Profile
  * Requires valid JWT token
  *

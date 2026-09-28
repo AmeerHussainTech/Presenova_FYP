@@ -251,6 +251,100 @@
   letter-spacing: 0.05em;
 }
 
+/* Label Row with Forgot Password Link */
+.label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.label-row label {
+  margin-bottom: 0;
+}
+
+.forgot-password-link {
+  background: none;
+  border: none;
+  color: #a78bfa;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+  transition: var(--transition-smooth);
+}
+
+.forgot-password-link:hover:not(:disabled) {
+  color: #c4b5fd;
+  text-decoration: underline;
+}
+
+/* Forgot Password Flow */
+.forgot-password-flow {
+  display: flex;
+  flex-direction: column;
+}
+
+.forgot-password-desc {
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0 0 1.5rem 0;
+}
+
+.token-toggle-section {
+  margin: 1.5rem 0 1rem;
+  text-align: center;
+}
+
+.toggle-token-btn {
+  background: none;
+  border: 1px dashed rgba(167, 139, 250, 0.4);
+  color: #c4b5fd;
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: var(--transition-smooth);
+  width: 100%;
+}
+
+.toggle-token-btn:hover {
+  background: rgba(139, 92, 246, 0.1);
+  border-color: #a78bfa;
+}
+
+.reset-token-form {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  padding: 1.2rem;
+  margin-bottom: 1.2rem;
+}
+
+.confirm-reset-btn {
+  margin-top: 0.5rem;
+}
+
+.back-login-row {
+  margin-top: 1.5rem;
+  text-align: center;
+}
+
+.back-login-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 6px 12px;
+  transition: var(--transition-smooth);
+}
+
+.back-login-btn:hover:not(:disabled) {
+  color: #f8fafc;
+}
+
 /* Footer */
 .login-footer {
   padding: 1.5rem 2rem;

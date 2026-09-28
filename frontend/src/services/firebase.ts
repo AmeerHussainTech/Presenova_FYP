@@ -20,6 +20,16 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
+export const sendFirebasePasswordReset = async (email: string): Promise<void> => {
+  const authModule = await import('firebase/auth');
+  const sendEmailFn = (authModule as any).sendPasswordResetEmail;
+  if (typeof sendEmailFn === 'function') {
+    await sendEmailFn(auth, email);
+  } else {
+    throw new Error('Firebase password reset function is unavailable.');
+  }
+};
+
 export const isElectron = (): boolean => {
   return (
     typeof window !== 'undefined' &&

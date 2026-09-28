@@ -44,7 +44,7 @@ else:
 socketio = SocketIO(async_mode=os.getenv('SOCKETIO_ASYNC_MODE', 'threading'))
 
 # Import blueprints
-from auth import auth_bp, register_jwt_error_handlers, signup, login, firebase_login, get_current_user, refresh
+from auth import auth_bp, register_jwt_error_handlers, signup, login, firebase_login, get_current_user, refresh, forgot_password, reset_password
 from phase_two import phase_two_bp
 from phase_four import phase_four_bp
 from phase_five import phase_five_bp
@@ -247,6 +247,8 @@ def create_app():
     auth_compat_bp.add_url_rule('/signup', 'signup_compat', signup, methods=['POST', 'OPTIONS'])
     auth_compat_bp.add_url_rule('/me', 'me_compat', get_current_user, methods=['GET', 'OPTIONS'])
     auth_compat_bp.add_url_rule('/refresh', 'refresh_compat', refresh, methods=['POST', 'OPTIONS'])
+    auth_compat_bp.add_url_rule('/forgot-password', 'forgot_password_compat', forgot_password, methods=['POST', 'OPTIONS'])
+    auth_compat_bp.add_url_rule('/reset-password', 'reset_password_compat', reset_password, methods=['POST', 'OPTIONS'])
     app.register_blueprint(auth_compat_bp)
     
     # Phase 2: Document Analysis

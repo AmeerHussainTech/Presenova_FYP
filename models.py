@@ -235,6 +235,9 @@ class User:
             "provider": self.provider,
             "updated_at": self.updated_at,
         }
+        if self.password_hash:
+            doc["password_hash"] = self.password_hash
+
         with _store_lock:
             if self.id in _MEMORY_STORE["users"]:
                 _MEMORY_STORE["users"][self.id].update(doc)
@@ -247,6 +250,27 @@ class User:
                 db.collection("users").document(str(self.id)).set(doc, merge=True, timeout=FIRESTORE_TIMEOUT)
             except Exception as e:
                 logger.warning(f"[DB FALLBACK] Firestore error on User.save: {e}")
+
+    def update_password(self, new_password_hash: str) -> None:
+        """Safely update user's hashed password in both Firestore and in-memory store."""
+        self.password_hash = new_password_hash
+        self.updated_at = datetime.now(timezone.utc)
+        doc = {
+            "password_hash": self.password_hash,
+            "updated_at": self.updated_at,
+        }
+        with _store_lock:
+            if self.id in _MEMORY_STORE["users"]:
+                _MEMORY_STORE["users"][self.id].update(doc)
+            elif self.uid in _MEMORY_STORE["users"]:
+                _MEMORY_STORE["users"][self.uid].update(doc)
+            _save_local_store()
+
+        if _is_firestore_enabled():
+            try:
+                db.collection("users").document(str(self.id)).set(doc, merge=True, timeout=FIRESTORE_TIMEOUT)
+            except Exception as e:
+                logger.warning(f"[DB FALLBACK] Firestore error on User.update_password: {e}")
 
     @staticmethod
     def get_by_email(email: str) -> "User | None":

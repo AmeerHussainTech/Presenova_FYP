@@ -16,11 +16,16 @@ import logging
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity
 from werkzeug.security import generate_password_hash, check_password_hash
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 from datetime import datetime, timedelta
 from models import User
 from services.rate_limiter import rate_limit
 
 logger = logging.getLogger(__name__)
+
+def _get_reset_serializer() -> URLSafeTimedSerializer:
+    secret_key = os.getenv('JWT_SECRET_KEY', '').strip() or os.getenv('SECRET_KEY', '').strip() or 'presenova-default-secret-key-fallback'
+    return URLSafeTimedSerializer(secret_key)
 
 EMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
 
@@ -565,6 +570,184 @@ def refresh():
             "success": False,
             "error": "RefreshFailed",
             "message": "Token refresh failed."
+        }
+        if not _is_prod:
+            resp["details"] = str(e)
+        return jsonify(resp), 500
+
+
+@auth_bp.route('/forgot-password', methods=['POST'])
+@rate_limit(limit_authenticated=10, limit_guest=5)
+def forgot_password():
+    """
+    Forgot Password Endpoint
+    Generates a cryptographically signed, expiring reset token.
+    Defends against user enumeration by returning a generic 200 response.
+    
+    Expected JSON input:
+    {
+        "email": "user@example.com"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "success": False,
+                "error": "InvalidJson",
+                "message": "Request body must be valid JSON"
+            }), 400
+
+        email = data.get('email', '').strip().lower()
+        if not email or not _is_valid_email(email):
+            return jsonify({
+                "success": False,
+                "error": "InvalidEmail",
+                "message": "Please provide a valid email address"
+            }), 400
+
+        user = User.get_by_email(email)
+        _is_prod = os.getenv('FLASK_ENV', 'development').strip().lower() == 'production'
+
+        reset_token = None
+        if user:
+            # Generate cryptographic token with salt and 30-min valid life
+            import hashlib
+            serializer = _get_reset_serializer()
+            phash_sig = hashlib.sha256((user.password_hash or "").encode('utf-8')).hexdigest()[:16]
+            reset_token = serializer.dumps(
+                {"user_id": str(user.id), "email": user.email, "phash": phash_sig},
+                salt="presenova-password-reset"
+            )
+            logger.info("Password reset token generated for user: %s (id: %s)", email, user.id)
+
+        # Standard anti-enumeration response (consistent regardless of user existence)
+        response_data = {
+            "success": True,
+            "status": "success",
+            "message": "If an account with this email exists, password reset instructions have been generated."
+        }
+
+        # For non-production development environments, provide token in response for immediate testing
+        if not _is_prod and reset_token:
+            response_data["dev_reset_token"] = reset_token
+
+        return jsonify(response_data), 200
+
+    except Exception as e:
+        logger.error("Forgot password error for %s: %s", email if 'email' in locals() else 'unknown', e, exc_info=True)
+        _is_prod = os.getenv('FLASK_ENV', 'development').strip().lower() == 'production'
+        resp = {
+            "success": False,
+            "error": "ForgotPasswordFailed",
+            "message": "An error occurred while processing your request. Please try again."
+        }
+        if not _is_prod:
+            resp["details"] = str(e)
+        return jsonify(resp), 500
+
+
+@auth_bp.route('/reset-password', methods=['POST'])
+@rate_limit(limit_authenticated=10, limit_guest=5)
+def reset_password():
+    """
+    Reset Password Endpoint
+    Validates the timed reset token, confirms single-use validity,
+    and updates the user's password with werkzeug hashing.
+    
+    Expected JSON input:
+    {
+        "token": "...",
+        "password": "new_secure_password"
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "success": False,
+                "error": "InvalidJson",
+                "message": "Request body must be valid JSON"
+            }), 400
+
+        token = str(data.get('token', '')).strip()
+        new_password = str(data.get('password', '')).strip()
+
+        if not token:
+            return jsonify({
+                "success": False,
+                "error": "MissingToken",
+                "message": "Reset token is required"
+            }), 400
+
+        if not new_password or len(new_password) < 8:
+            return jsonify({
+                "success": False,
+                "error": "WeakPassword",
+                "message": "Password must be at least 8 characters long"
+            }), 400
+
+        serializer = _get_reset_serializer()
+        try:
+            # 1800 seconds = 30 minutes validity window
+            payload = serializer.loads(token, salt="presenova-password-reset", max_age=1800)
+        except SignatureExpired:
+            return jsonify({
+                "success": False,
+                "error": "TokenExpired",
+                "message": "Password reset token has expired. Please request a new one."
+            }), 400
+        except BadSignature:
+            return jsonify({
+                "success": False,
+                "error": "InvalidToken",
+                "message": "Invalid or tampered password reset token."
+            }), 400
+
+        user_id = payload.get("user_id")
+        email = payload.get("email")
+        token_phash = payload.get("phash")
+
+        user = User.get_by_id(user_id) if user_id else None
+        if not user and email:
+            user = User.get_by_email(email)
+
+        if not user:
+            return jsonify({
+                "success": False,
+                "error": "UserNotFound",
+                "message": "The account associated with this token was not found."
+            }), 404
+
+        # Enforce single-use token: token is invalidated once password hash changes
+        import hashlib
+        current_phash_sig = hashlib.sha256((user.password_hash or "").encode('utf-8')).hexdigest()[:16]
+        if current_phash_sig != token_phash:
+            return jsonify({
+                "success": False,
+                "error": "TokenAlreadyUsed",
+                "message": "This password reset token has already been used. Please request a new one."
+            }), 400
+
+        # Hash new password securely
+        new_password_hash = generate_password_hash(new_password)
+        user.update_password(new_password_hash)
+
+        logger.info("Password successfully updated for user: %s (id: %s)", user.email, user.id)
+
+        return jsonify({
+            "success": True,
+            "status": "success",
+            "message": "Password has been successfully updated. You can now log in with your new password."
+        }), 200
+
+    except Exception as e:
+        logger.error("Reset password error: %s", e, exc_info=True)
+        _is_prod = os.getenv('FLASK_ENV', 'development').strip().lower() == 'production'
+        resp = {
+            "success": False,
+            "error": "ResetPasswordFailed",
+            "message": "An error occurred while resetting password. Please try again."
         }
         if not _is_prod:
             resp["details"] = str(e)
