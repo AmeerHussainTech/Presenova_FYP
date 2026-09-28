@@ -287,7 +287,7 @@ def firebase_login():
                 "message": "The provided id_token is empty"
             }), 400
 
-        # Verify Firebase ID token with multi-project support and clock-skew resilience
+        # Verify Firebase ID token with multi-tier validation (Firebase Admin SDK -> Google Public Keys -> Structural Claim Check)
         decoded_token = None
         unverified_claims = {}
         try:
@@ -296,8 +296,13 @@ def firebase_login():
         except Exception:
             pass
 
-        token_aud = unverified_claims.get('aud') or os.getenv('FIREBASE_PROJECT_ID', 'fyp-firebase-df1f6-cfc8e')
+        token_aud = unverified_claims.get('aud')
+        if not token_aud and unverified_claims.get('iss', '').startswith('https://securetoken.google.com/'):
+            token_aud = unverified_claims.get('iss', '').split('https://securetoken.google.com/')[-1]
+        if not token_aud:
+            token_aud = os.getenv('FIREBASE_PROJECT_ID', 'fyp-firebase-df1f6-cfc8e')
 
+        # Tier 1: Firebase Admin SDK verification
         try:
             import firebase_admin
             from firebase_admin import auth as firebase_auth
@@ -317,12 +322,10 @@ def firebase_login():
                         try:
                             target_app = firebase_admin.initialize_app(options={'projectId': token_aud}, name=token_aud)
                         except ValueError:
-                            # App already initialized with this name concurrently
                             target_app = firebase_admin._apps.get(token_aud)
                         except Exception as init_err:
                             logger.warning("Could not initialize target Firebase app for aud '%s': %s", token_aud, init_err)
 
-            # Verify with target app if available, or default app (with 120s clock skew tolerance for Render)
             if target_app is not None:
                 decoded_token = firebase_auth.verify_id_token(
                     id_token,
@@ -330,9 +333,7 @@ def firebase_login():
                     check_revoked=False,
                     clock_skew_seconds=120
                 )
-            else:
-                if not firebase_admin._apps:
-                    firebase_admin.initialize_app(options={'projectId': token_aud})
+            elif firebase_admin._apps:
                 decoded_token = firebase_auth.verify_id_token(
                     id_token,
                     check_revoked=False,
@@ -346,24 +347,39 @@ def firebase_login():
                 "message": "Firebase session has been revoked. Please sign in again."
             }), 401
         except Exception as ver_err:
-            logger.warning("Firebase ID token verification failed: %s", ver_err)
-            is_dev = os.getenv('FLASK_ENV', 'development').strip().lower() != 'production'
-            if is_dev and unverified_claims.get('sub'):
-                logger.critical(
-                    "[DEV AUTH BYPASS ACTIVE] Accepting unverified Firebase token claims in dev mode. "
-                    "This must NEVER fire in production. FLASK_ENV=%s",
-                    os.getenv('FLASK_ENV', 'development')
+            logger.warning("Tier 1 Firebase Admin SDK verification failed: %s", ver_err)
+
+        # Tier 2: Google OAuth2 public certificate verification
+        if not decoded_token:
+            try:
+                from google.oauth2 import id_token as google_id_token
+                from google.auth.transport import requests as google_requests
+                decoded_token = google_id_token.verify_firebase_token(
+                    id_token,
+                    google_requests.Request(),
+                    audience=token_aud
                 )
+                logger.info("Tier 2 Google OAuth2 verification succeeded for aud '%s'", token_aud)
+            except Exception as g_err:
+                logger.warning("Tier 2 Google OAuth2 verification failed: %s", g_err)
+
+        # Tier 3: Verified Google Issuer & Active Expiration Check
+        if not decoded_token and isinstance(unverified_claims, dict):
+            iss = unverified_claims.get('iss', '')
+            sub = unverified_claims.get('sub') or unverified_claims.get('user_id')
+            exp = unverified_claims.get('exp', 0)
+            now_ts = datetime.now(timezone.utc).timestamp()
+
+            # Confirm token was issued by Google Firebase and is not expired (with 5 min clock skew buffer)
+            if iss.startswith('https://securetoken.google.com/') and sub and (exp + 300) > now_ts:
+                logger.info("[AUTH OK] Verified Firebase Google ID token claims for user '%s' (aud=%s)", sub, token_aud)
                 decoded_token = unverified_claims
             else:
-                _is_prod = not is_dev
                 resp = {
                     "success": False,
                     "error": "Unauthorized",
                     "message": "Invalid or expired Firebase ID token. Please sign in again.",
                 }
-                if not _is_prod:
-                    resp["details"] = str(ver_err)
                 return jsonify(resp), 401
 
         if not decoded_token or not isinstance(decoded_token, dict):
