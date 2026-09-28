@@ -69,9 +69,11 @@ export const getFirebaseErrorMessage = (error: any): string => {
       return 'Sign-in popup was blocked by browser. Please allow popups for this site.';
     case 'auth/network-request-failed':
       return 'Network connection error. Please check your connection and try again.';
+    case 'auth/unauthorized-domain':
+      return `This domain (${typeof window !== 'undefined' ? window.location.hostname : 'your domain'}) is not authorized in Firebase Console. Please add "${typeof window !== 'undefined' ? window.location.hostname : 'fyp-presenova-frontend.onrender.com'}" to Firebase Console > Authentication > Settings > Authorized domains.`;
     case 'auth/configuration-not-found':
     case 'auth/operation-not-allowed':
-      return 'Firebase Authentication is not enabled in Firebase Console. Go to Firebase Console > Authentication > Sign-in method and enable Email/Password (or use Sign Up tab).';
+      return 'Firebase Authentication is not enabled in Firebase Console. Go to Firebase Console > Authentication > Sign-in method and enable Google / Email-Password.';
     default:
       return error?.message || 'Authentication failed. Please try again.';
   }
