@@ -12,8 +12,8 @@ dist/
 !frontend/public/downloads/**
 generated_presentations/
 eggs/
-.eggs/
-lib/
+/lib/
+!flutter_app/lib/
 lib64/
 parts/
 sdist/
