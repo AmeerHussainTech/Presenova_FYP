@@ -343,9 +343,8 @@ if __name__ == '__main__':
         'port': port,
         'debug': debug,
         'use_reloader': False,
+        'allow_unsafe_werkzeug': True,
     }
-    if debug:
-        socketio_kwargs['allow_unsafe_werkzeug'] = True
 
     logger.info(f"Starting Presenova server on http://{host}:{port} (debug={debug}, reloader=False)")
     socketio.run(app, **socketio_kwargs)

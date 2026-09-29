@@ -20,6 +20,7 @@ from services.ai.fallback import FallbackManager
 from services.ai.prompts import build_rewrite_prompt
 from services.rewrite.planner import RewritePlanner
 from services.rewrite.smart_filter import SmartFilter
+from services.rewrite.spacy_rewriter import rewrite_slide_dict
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +136,52 @@ class RewriteExecutor:
                     result['_change_severity'] = self._classify_severity(slide, result)
                     rewritten.append(result)
                 else:
-                    # Fallback: return original
+                    # Fallback: Apply local deterministic spaCy / rule-based rewrite
+                    try:
+                        rule_result = rewrite_slide_dict(
+                            slide,
+                            mode=self.planner.mode,
+                            tone=self.planner.tone
+                        )
+                        rule_result['_change_severity'] = self._classify_severity(slide, rule_result)
+                        rule_result['_fallback'] = True
+                        rewritten.append(rule_result)
+                    except Exception as rule_err:
+                        logger.warning("[executor] Rule-based rewrite fallback error for slide %d: %s", slide_num, rule_err)
+                        rewritten.append({
+                            'slide_number': slide_num,
+                            'textboxes': [
+                                {
+                                    'shape_index': tb.get('shape_index'),
+                                    'paragraphs': [
+                                        p.get('text', '') if isinstance(p, dict) else str(p)
+                                        for p in tb.get('paragraphs', [])
+                                    ],
+                                }
+                                for tb in slide.get('textboxes', [])
+                            ],
+                            'tables': [],
+                            'charts': [],
+                            '_fallback': True,
+                            '_change_severity': 'none',
+                        })
+                    self.metrics['fallback_count'] += 1
+
+            except Exception as exc:
+                logger.error(
+                    "[executor] Slide %d rewrite failed: %s", slide_num, exc
+                )
+                try:
+                    rule_result = rewrite_slide_dict(
+                        slide,
+                        mode=self.planner.mode,
+                        tone=self.planner.tone
+                    )
+                    rule_result['_change_severity'] = self._classify_severity(slide, rule_result)
+                    rule_result['_fallback'] = True
+                    rule_result['_error'] = str(exc)
+                    rewritten.append(rule_result)
+                except Exception:
                     rewritten.append({
                         'slide_number': slide_num,
                         'textboxes': [
@@ -151,32 +197,9 @@ class RewriteExecutor:
                         'tables': [],
                         'charts': [],
                         '_fallback': True,
+                        '_error': str(exc),
                         '_change_severity': 'none',
                     })
-                    self.metrics['fallback_count'] += 1
-
-            except Exception as exc:
-                logger.error(
-                    "[executor] Slide %d rewrite failed: %s", slide_num, exc
-                )
-                rewritten.append({
-                    'slide_number': slide_num,
-                    'textboxes': [
-                        {
-                            'shape_index': tb.get('shape_index'),
-                            'paragraphs': [
-                                p.get('text', '') if isinstance(p, dict) else str(p)
-                                for p in tb.get('paragraphs', [])
-                            ],
-                        }
-                        for tb in slide.get('textboxes', [])
-                    ],
-                    'tables': [],
-                    'charts': [],
-                    '_fallback': True,
-                    '_error': str(exc),
-                    '_change_severity': 'none',
-                })
                 self.metrics['fallback_count'] += 1
 
         return rewritten

@@ -301,6 +301,21 @@ const SpeechAnalyzer: React.FC = () => {
           </div>
         </div>
 
+        {/* Spoken Speech Transcript */}
+        <div className="transcript-section mt-4">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+            <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#f8fafc' }}>🎙️ Spoken Speech Transcript</h3>
+            <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+              {report.word_count || (report.transcript ? report.transcript.split(/\s+/).length : (v1Transcript ? v1Transcript.split(/\s+/).length : 0))} words · {report.duration_seconds || elapsedSecs}s
+            </span>
+          </div>
+          <div className="transcript-display">
+            <p className="transcript-text" style={{ whiteSpace: 'pre-wrap', lineHeight: '1.7', color: '#e2e8f0', fontSize: '0.95rem' }}>
+              {report.transcript || v1Transcript || 'No transcript text available.'}
+            </p>
+          </div>
+        </div>
+
         {report.category_scores && (
           <div className="category-scores-section mt-4">
             <h3>Pacing & Quality Categories</h3>
